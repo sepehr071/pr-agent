@@ -1,0 +1,64 @@
+version: "3.7"
+
+services:
+  caddy:
+    image: caddy:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - ${DATA_FOLDER}/caddy_config:/config
+      - ${DATA_FOLDER}/caddy_config/Caddyfile:/etc/caddy/Caddyfile
+    networks:
+      - default
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    restart: always
+    ports:
+      - 5678:5678
+    environment:
+      - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - NODE_ENV=production
+      - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - NODE_EXTRA_CA_CERTS=/opt/certs/prod-ca-2021.crt
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # === PR Agent Variables ===
+      - GITLAB_URL=https://gitlab.example.com
+      - GITLAB_NAMESPACE=your-group
+      - GITLAB_PROJECT=your-project
+      - OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+      - APP_URL=https://review.example.com
+      - AUTHORIZED_APPROVERS=your-gitlab-username
+      - MIN_SEVERITY=low
+      - REVIEW_MODE=thorough
+      - MAX_FINDINGS_PER_AGENT=20
+      # - CRITICAL_NOTIFICATION_WEBHOOK=https://hooks.slack.com/services/xxx  # Optional: uncomment and set if needed
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ${DATA_FOLDER}/local_files:/files
+      - ./prod-ca-2021.crt:/opt/certs/prod-ca-2021.crt:ro
+    networks:
+      - default
+      - n8n_ipv6_network
+
+volumes:
+  caddy_data:
+    external: true
+  n8n_data:
+    external: true
+
+networks:
+  default:
+  n8n_ipv6_network:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd12:3456:789a::/64
+          gateway: fd12:3456:789a::1

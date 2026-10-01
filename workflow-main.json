@@ -1,0 +1,1053 @@
+{
+  "name": "GitLab MR Multi-Agent Code Review - Enhanced v3",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "merge_requests"
+        ],
+        "owner": "your-gitlab-username",
+        "repository": "financial-laws-scrapper"
+      },
+      "id": "gitlab-mr-trigger",
+      "name": "GitLab MR Trigger",
+      "type": "n8n-nodes-base.gitlabTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        500
+      ],
+      "credentials": {
+        "gitLabApi": {
+          "id": "{{GITLAB_CREDENTIAL_ID}}",
+          "name": "GitLab Self-Hosted"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1b2c3d4-0001-4000-8000-000000000001",
+              "name": "GITLAB_URL",
+              "value": "https://gitlab.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a1b2c3d4-0001-4000-8000-000000000002",
+              "name": "OPENROUTER_MODEL",
+              "value": "moonshotai/kimi-k2.5",
+              "type": "string"
+            },
+            {
+              "id": "a1b2c3d4-0001-4000-8000-000000000003",
+              "name": "APP_URL",
+              "value": "https://review.example.com",
+              "type": "string"
+            },
+            {
+              "id": "a1b2c3d4-0001-4000-8000-000000000004",
+              "name": "MIN_SEVERITY",
+              "value": "low",
+              "type": "string"
+            },
+            {
+              "id": "a1b2c3d4-0001-4000-8000-000000000005",
+              "name": "REVIEW_MODE",
+              "value": "thorough",
+              "type": "string"
+            },
+            {
+              "id": "a1b2c3d4-0001-4000-8000-000000000006",
+              "name": "MAX_FINDINGS_PER_AGENT",
+              "value": "20",
+              "type": "string"
+            },
+            {
+              "id": "a1b2c3d4-0001-4000-8000-000000000007",
+              "name": "CRITICAL_NOTIFICATION_WEBHOOK",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        350,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-open",
+              "leftValue": "={{ $json.body.object_attributes.action }}",
+              "rightValue": "open",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "condition-update",
+              "leftValue": "={{ $json.body.object_attributes.action }}",
+              "rightValue": "update",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "filter-mr-events",
+      "name": "Filter MR Events",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        450,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.body.project.id }}/merge_requests/{{ $json.body.object_attributes.iid }}/changes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "fetch-mr-diff",
+      "name": "Fetch MR Diff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        650,
+        500
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{GITLAB_HEADER_AUTH_ID}}",
+          "name": "GitLab Private Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Prepare Enhanced Review Context\ntry {\n  const mrData = $('GitLab MR Trigger').first().json.body;\n  const diffData = $input.first().json;\n\n  // Extract changed files with their diffs\n  const changedFiles = (diffData.changes || []).map(change => ({\n    old_path: change.old_path,\n    new_path: change.new_path,\n    diff: change.diff,\n    new_file: change.new_file,\n    deleted_file: change.deleted_file,\n    renamed_file: change.renamed_file\n  }));\n\n  // Generate unique review ID\n  const reviewId = `review-${mrData.project.id}-${mrData.object_attributes.iid}-${Date.now()}`;\n\n  // Detect programming languages from file extensions\n  const detectedLanguages = new Set();\n  changedFiles.forEach(f => {\n    const ext = f.new_path.split('.').pop();\n    if (['js', 'jsx', 'ts', 'tsx'].includes(ext)) detectedLanguages.add('javascript');\n    else if (['py'].includes(ext)) detectedLanguages.add('python');\n    else if (['java', 'kt'].includes(ext)) detectedLanguages.add('java');\n    else if (['go'].includes(ext)) detectedLanguages.add('go');\n    else if (['rs'].includes(ext)) detectedLanguages.add('rust');\n    else if (['php'].includes(ext)) detectedLanguages.add('php');\n    else if (['rb'].includes(ext)) detectedLanguages.add('ruby');\n    else if (['cs'].includes(ext)) detectedLanguages.add('csharp');\n    else if (['sql'].includes(ext)) detectedLanguages.add('sql');\n  });\n\n  // Prepare enhanced context for all agents\n  const reviewContext = {\n    review_id: reviewId,\n    mr_iid: mrData.object_attributes.iid,\n    project_id: mrData.project.id,\n    project_path: mrData.project.path_with_namespace,\n    source_branch: mrData.object_attributes.source_branch,\n    target_branch: mrData.object_attributes.target_branch,\n    head_sha: mrData.object_attributes.last_commit?.id || '',\n    base_sha: diffData.diff_refs?.base_sha || '',\n    head_sha_full: diffData.diff_refs?.head_sha || '',\n    start_sha: diffData.diff_refs?.start_sha || '',\n    title: mrData.object_attributes.title,\n    description: mrData.object_attributes.description || '',\n    author: mrData.user?.username || 'unknown',\n    changed_files: changedFiles,\n    file_count: changedFiles.length,\n    additions: mrData.object_attributes.additions || 0,\n    deletions: mrData.object_attributes.deletions || 0,\n    gitlab_url: $('Config').first().json.GITLAB_URL,\n    detected_languages: Array.from(detectedLanguages),\n    // Configuration from environment\n    config: {\n      min_severity: $('Config').first().json.MIN_SEVERITY || 'low',\n      review_mode: $('Config').first().json.REVIEW_MODE || 'thorough',\n      max_findings_per_agent: parseInt($('Config').first().json.MAX_FINDINGS_PER_AGENT || '20'),\n      review_mode_instruction: (() => {\n        const mode = $('Config').first().json.REVIEW_MODE || 'thorough';\n        if (mode === 'quick') return 'Focus ONLY on critical and high severity issues. Be brief and concise.';\n        if (mode === 'balanced') return 'Focus on high-impact issues. Report medium+ severity only.';\n        return 'Be thorough. Report all findings at all severity levels.';\n      })()\n    },\n    created_at: new Date().toISOString()\n  };\n\n  return [{ json: reviewContext }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stage: 'prepare_context' } }];\n}"
+      },
+      "id": "prepare-context",
+      "name": "Prepare Review Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        850,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "={{ $('Config').first().json.APP_URL }}"
+            },
+            {
+              "name": "X-Title",
+              "value": "GitLab MR Security Review - Enhanced"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.security_body }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "security-agent",
+      "name": "Security Review Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        150
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{OPENROUTER_AUTH_ID}}",
+          "name": "OpenRouter API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "={{ $('Config').first().json.APP_URL }}"
+            },
+            {
+              "name": "X-Title",
+              "value": "GitLab MR Performance Review - Enhanced"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.performance_body }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "performance-agent",
+      "name": "Performance Review Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        280
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{OPENROUTER_AUTH_ID}}",
+          "name": "OpenRouter API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "={{ $('Config').first().json.APP_URL }}"
+            },
+            {
+              "name": "X-Title",
+              "value": "GitLab MR Style Review - Enhanced"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.style_body }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "style-agent",
+      "name": "Style Review Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        410
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{OPENROUTER_AUTH_ID}}",
+          "name": "OpenRouter API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "={{ $('Config').first().json.APP_URL }}"
+            },
+            {
+              "name": "X-Title",
+              "value": "GitLab MR Architecture Review - Enhanced"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.architecture_body }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "architecture-agent",
+      "name": "Architecture Review Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        540
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{OPENROUTER_AUTH_ID}}",
+          "name": "OpenRouter API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "={{ $('Config').first().json.APP_URL }}"
+            },
+            {
+              "name": "X-Title",
+              "value": "GitLab MR Test Coverage Review - Enhanced"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.test_coverage_body }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "test-coverage-agent",
+      "name": "Test Coverage Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        670
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{OPENROUTER_AUTH_ID}}",
+          "name": "OpenRouter API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "={{ $('Config').first().json.APP_URL }}"
+            },
+            {
+              "name": "X-Title",
+              "value": "GitLab MR Code Quality Review - Enhanced"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.code_quality_body }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "code-quality-agent",
+      "name": "Code Quality Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        800
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{OPENROUTER_AUTH_ID}}",
+          "name": "OpenRouter API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "={{ $('Config').first().json.APP_URL }}"
+            },
+            {
+              "name": "X-Title",
+              "value": "GitLab MR Context Analysis - New"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.context_body }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "context-analyzer-agent",
+      "name": "Context Analyzer Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        930
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{OPENROUTER_AUTH_ID}}",
+          "name": "OpenRouter API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberOfInputs": 7,
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Aggregate Agent Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1400,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Parse and aggregate all agent findings with enhanced analysis\ntry {\n  const context = $('Prepare Review Context').first().json;\n  const agentResults = $input.all();\n\n  let allFindings = [];\n  const agentStats = {};\n\n  // Parse each agent's response\n  for (const result of agentResults) {\n    try {\n      const response = result.json;\n      // Skip failed agent results\n      if (response.error) continue;\n      // Handle OpenRouter response format\n      const content = response.choices?.[0]?.message?.content || '';\n      \n      // Extract JSON from the response (handle markdown code blocks)\n      let jsonMatch = content.match(/\\[\\s*\\{[\\s\\S]*\\}\\s*\\]/);\n      if (!jsonMatch) {\n        // Try to find JSON in code blocks\n        jsonMatch = content.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n        if (jsonMatch) {\n          const innerMatch = jsonMatch[1].match(/\\[\\s*\\{[\\s\\S]*\\}\\s*\\]/);\n          if (innerMatch) jsonMatch = innerMatch;\n        }\n      }\n      \n      if (jsonMatch) {\n        const findings = JSON.parse(jsonMatch[0]);\n        allFindings = allFindings.concat(findings);\n        \n        // Track agent stats\n        for (const f of findings) {\n          if (!agentStats[f.category]) agentStats[f.category] = 0;\n          agentStats[f.category]++;\n        }\n      }\n    } catch (e) {\n      console.log('Error parsing agent response:', e.message);\n    }\n  }\n\n  // Filter by minimum severity if configured\n  const minSeverity = context.config.min_severity || 'low';\n  const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };\n  const minSeverityValue = severityOrder[minSeverity] || 3;\n  \n  allFindings = allFindings.filter(f => {\n    const sevValue = severityOrder[f.severity] || 3;\n    return sevValue <= minSeverityValue;\n  });\n\n  // Limit findings per agent if configured\n  const maxPerAgent = context.config.max_findings_per_agent || 20;\n  const limitedFindings = [];\n  const findingsByCategory = {};\n  \n  for (const f of allFindings) {\n    if (!findingsByCategory[f.category]) findingsByCategory[f.category] = [];\n    if (findingsByCategory[f.category].length < maxPerAgent) {\n      findingsByCategory[f.category].push(f);\n    }\n  }\n  \n  for (const cat of Object.values(findingsByCategory)) {\n    limitedFindings.push(...cat);\n  }\n  \n  allFindings = limitedFindings;\n\n  // Sort by severity\n  allFindings.sort((a, b) => \n    (severityOrder[a.severity] || 4) - (severityOrder[b.severity] || 4)\n  );\n\n  // Add ID to each finding (1-based index)\n  allFindings = allFindings.map((f, idx) => ({ ...f, id: idx + 1 }));\n\n  // Count by severity and category\n  const stats = {\n    total: allFindings.length,\n    critical: allFindings.filter(f => f.severity === 'critical').length,\n    high: allFindings.filter(f => f.severity === 'high').length,\n    medium: allFindings.filter(f => f.severity === 'medium').length,\n    low: allFindings.filter(f => f.severity === 'low').length,\n    by_category: agentStats\n  };\n\n  // Calculate risk score (0-100)\n  const riskWeights = { critical: 25, high: 10, medium: 3, low: 1 };\n  let riskScore = 0;\n  for (const f of allFindings) {\n    riskScore += riskWeights[f.severity] || 1;\n  }\n  riskScore = Math.min(100, riskScore);\n\n  // Calculate overall confidence based on finding confidence\n  const confidenceCounts = { high: 0, medium: 0, low: 0 };\n  for (const f of allFindings) {\n    if (f.confidence) confidenceCounts[f.confidence]++;\n  }\n  const totalWithConfidence = allFindings.filter(f => f.confidence).length;\n  const highConfidenceRatio = totalWithConfidence > 0 ? confidenceCounts.high / totalWithConfidence : 0.5;\n  const overallConfidence = Math.round(50 + (highConfidenceRatio * 40) + (confidenceCounts.medium / totalWithConfidence || 0) * 10);\n\n  // Generate executive summary\n  const executiveSummary = generateExecutiveSummary(context, allFindings, stats, riskScore, overallConfidence);\n\n  // Format draft review comment\n  const devComment = formatDeveloperComment(context, allFindings, stats, executiveSummary, riskScore, overallConfidence);\n  const ctoComment = formatCTOComment(context, riskScore, overallConfidence);\n\n  return [{\n    json: {\n      review_id: context.review_id,\n      mr_iid: context.mr_iid,\n      project_id: context.project_id,\n      findings: allFindings,\n      stats: stats,\n      risk_score: riskScore,\n      confidence_score: overallConfidence,\n      executive_summary: executiveSummary,\n      developer_comment: devComment,\n      cto_comment: ctoComment,\n      context: context\n    }\n  }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stack: error.stack, stage: 'format_draft' } }];\n}\n\nfunction generateExecutiveSummary(ctx, findings, stats, riskScore, confidence) {\n  let summary = '';\n  \n  // Risk assessment\n  let riskLevel = 'LOW';\n  if (riskScore >= 70) riskLevel = 'CRITICAL';\n  else if (riskScore >= 40) riskLevel = 'HIGH';\n  else if (riskScore >= 20) riskLevel = 'MEDIUM';\n  \n  // Recommendation\n  let recommendation = 'APPROVE to merge';\n  if (stats.critical > 0) recommendation = 'REQUEST CHANGES - Critical issues must be fixed';\n  else if (stats.high >= 3 || riskScore >= 40) recommendation = 'RECOMMENDS CHANGES - Address high-severity issues before merge';\n  else if (stats.high > 0 || stats.medium >= 5) recommendation = 'REVIEW RECOMMENDED - Address findings before merge';\n  \n  // Build summary\n  summary += `This MR introduces **${stats.total} finding(s)** across **${Object.keys(stats.by_category || {}).length}** categories.\\n`;\n  summary += `**Risk Level:** ${riskLevel} (Score: ${riskScore}/100) | **AI Confidence:** ${confidence}%\\n\\n`;\n  summary += `**Recommendation:** ${recommendation}\\n\\n`;\n  \n  // Critical issues summary\n  const criticalIssues = findings.filter(f => f.severity === 'critical');\n  if (criticalIssues.length > 0) {\n    summary += `**Must Fix (${criticalIssues.length}):** `;\n    summary += criticalIssues.slice(0, 3).map(f => `${f.title} (${f.file_path}:${f.line})`).join('; ');\n    if (criticalIssues.length > 3) summary += `, and ${criticalIssues.length - 3} more`;\n  }\n  \n  return summary;\n}\n\nfunction formatDeveloperComment(ctx, findings, stats, execSummary, riskScore, confidence) {\n  const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' };\n  const categoryEmoji = {\n    'security': '🔒',\n    'performance': '⚡',\n    'architecture': '🏗️',\n    'code-quality': '✨',\n    'test-coverage': '🧪',\n    'style': '🎨',\n    'context': '🔗'\n  };\n  \n  // Risk level emoji and color\n  let riskEmoji = '🟢';\n  if (riskScore >= 70) riskEmoji = '🔴';\n  else if (riskScore >= 40) riskEmoji = '🟠';\n  else if (riskScore >= 20) riskEmoji = '🟡';\n  \n  let comment = `## 🤖 AI Code Review\\n\\n`;\n  \n  // Executive Summary Section\n  comment += `### 📋 Executive Summary\\n\\n`;\n  comment += execSummary;\n  comment += `\\n---\\n\\n`;\n  \n  // MR Info\n  comment += `**MR:** !${ctx.mr_iid} - ${ctx.title}\\n`;\n  comment += `**Author:** @${ctx.author} | **Branch:** \\`${ctx.source_branch}\\` → \\`${ctx.target_branch}\\`\\n`;\n  comment += `**Files Changed:** ${ctx.file_count} (+${ctx.additions}/-${ctx.deletions})\\n\\n`;\n  \n  comment += `---\\n\\n`;\n  \n  // Stats Section with Risk Score\n  comment += `### 📊 Analysis Summary\\n\\n`;\n  comment += `| **Risk Score:** ${riskEmoji} **${riskScore}/100** | **AI Confidence:** **${confidence}%** |\\n`;\n  comment += `|---|---|\\n`;\n  comment += `| 🔴 Critical | ${stats.critical} |\\n`;\n  comment += `| 🟠 High | ${stats.high} |\\n`;\n  comment += `| 🟡 Medium | ${stats.medium} |\\n`;\n  comment += `| ⚪ Low | ${stats.low} |\\n`;\n  comment += `| **Total Findings** | **${stats.total}** |\\n\\n`;\n  \n  // Numbered findings table\n  comment += `### 📋 Findings\\n\\n`;\n  comment += `| # | Severity | Category | File | Line | Issue |\\n`;\n  comment += `|---|----------|----------|------|------|-------|\\n`;\n  \n  for (const f of findings) {\n    const catIcon = categoryEmoji[f.category] || '📋';\n    const sevIcon = sevEmoji[f.severity] || '⚪';\n    const confidenceTag = f.confidence ? ` [${f.confidence}]` : '';\n    comment += `| **${f.id}** | ${sevIcon} ${f.severity}${confidenceTag} | ${catIcon} ${f.category} | \\`${f.file_path}\\` | ${f.line} | ${f.title} |\\n`;\n  }\n  \n  comment += `\\n`;\n  \n  // Detailed findings by category\n  comment += `<details>\\n<summary>📖 Click to expand detailed findings</summary>\\n\\n`;\n  \n  const categories = ['security', 'performance', 'architecture', 'code-quality', 'test-coverage', 'style', 'context'];\n  \n  for (const cat of categories) {\n    const catFindings = findings.filter(f => f.category === cat);\n    if (catFindings.length > 0) {\n      comment += `#### ${categoryEmoji[cat] || '📋'} ${cat.charAt(0).toUpperCase() + cat.slice(1).replace('-', ' ')} (${catFindings.length})\\n\\n`;\n      for (const f of catFindings) {\n        const sevIcon = sevEmoji[f.severity] || '⚪';\n        comment += `**[${f.id}]** ${sevIcon} **${f.title}**\\n`;\n        comment += `- 📁 \\`${f.file_path}:${f.line}\\`\\n`;\n        if (f.subcategory) comment += `- 🏷️ Subcategory: \\`${f.subcategory}\\`\\n`;\n        comment += `- 📝 ${f.description}\\n`;\n        if (f.suggestion) {\n          comment += `- 💡 *${f.suggestion}*\\n`;\n        }\n        if (f.cwe_id) {\n          comment += `- 🔗 [CWE-${f.cwe_id}](https://cwe.mitre.org/data/definitions/${f.cwe_id.replace('CWE-', '')}.html)\\n`;\n        }\n        if (f.impact) {\n          comment += `- ⚡ Impact: ${f.impact}\\n`;\n        }\n        if (f.metrics) {\n          comment += `- 📊 Metrics: ${f.metrics}\\n`;\n        }\n        if (f.related_files && f.related_files.length > 0) {\n          comment += `- 🔗 Related: ${f.related_files.map(ff => `\\`${ff}\\``).join(', ')}\\n`;\n        }\n        comment += `\\n`;\n      }\n    }\n  }\n  \n  comment += `</details>\\n\\n`;\n  \n  comment += `---\\n\\n`;\n  comment += `*Review ID: \\`${ctx.review_id}\\` | Powered by AI Code Review*\\n`;\n  \n  return comment;\n}\n\nfunction formatCTOComment(ctx, riskScore, confidence) {\n  let comment = `### 🔧 CTO Review Panel\\n\\n`;\n  comment += `| Command | Description |\\n`;\n  comment += `|---------|-------------|\\n`;\n  comment += `| \\`!approve\\` | Post **all** findings as inline comments |\\n`;\n  comment += `| \\`!approve-partial 1,3,5-7\\` | Post only selected findings (by #) |\\n`;\n  comment += `| \\`!reject\\` | Discard all findings |\\n`;\n  comment += `| \\`!remove-finding 2,4\\` | Remove findings from list |\\n`;\n  comment += `| \\`!edit-finding 1 severity:low\\` | Edit a finding's severity |\\n`;\n  comment += `| \\`!add-comment file.js:42 \\\"msg\\\"\\` | Add your own inline comment |\\n`;\n  comment += `| \\`!list-findings\\` | Re-display current findings |\\n`;\n  comment += `| \\`!explain <id>\\` | Get detailed explanation of a finding |\\n`;\n  comment += `| \\`!rerun-agent <agent>\\` | Re-run specific review agent |\\n\\n`;\n  comment += `*Model: ${$('Config').first().json.OPENROUTER_MODEL} | Review ID: \\`${ctx.review_id}\\`*\\n`;\n  \n  return comment;\n}"
+      },
+      "id": "format-draft-comment",
+      "name": "Format Draft Comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.context.gitlab_url }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/discussions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.developer_comment } }}",
+        "options": {}
+      },
+      "id": "post-draft-comment",
+      "name": "Post Draft Comment to GitLab",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1900,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{GITLAB_HEADER_AUTH_ID}}",
+          "name": "GitLab Private Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Build raw SQL INSERT to avoid n8n queryParams comma-splitting bug\ntry {\n  const fmt = $('Format Draft Comment').first().json;\n  const note = $('Post Draft Comment to GitLab').first().json;\n  const config = $('Config').first().json;\n\n  function escapeSQL(val) {\n    if (val === null || val === undefined) return 'NULL';\n    if (typeof val === 'number') return String(val);\n    return \"'\" + String(val).replace(/'/g, \"''\") + \"'\";\n  }\n\n  const reviewMetadata = JSON.stringify({\n    risk_score: fmt.risk_score,\n    executive_summary: fmt.executive_summary,\n    model: config.OPENROUTER_MODEL,\n    languages: fmt.context.detected_languages\n  });\n\n  const columns = [\n    'review_id', 'mr_iid', 'project_id', 'findings', 'stats',\n    'draft_note_id', 'confidence_score', 'review_metadata',\n    'base_sha', 'head_sha', 'start_sha', 'status', 'created_at'\n  ];\n\n  const values = [\n    escapeSQL(fmt.review_id),\n    fmt.mr_iid,\n    fmt.project_id,\n    escapeSQL(JSON.stringify(fmt.findings)),\n    escapeSQL(JSON.stringify(fmt.stats)),\n    note.notes[0].id,\n    fmt.confidence_score,\n    escapeSQL(reviewMetadata),\n    escapeSQL(fmt.context.base_sha),\n    escapeSQL(fmt.context.head_sha_full),\n    escapeSQL(fmt.context.start_sha),\n    \"'pending_approval'\",\n    'NOW()'\n  ];\n\n  const query = `INSERT INTO pending_reviews (${columns.join(', ')}) VALUES (${values.join(', ')})`;\n\n  return [{ json: { query } }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stack: error.stack } }];\n}"
+      },
+      "id": "store-pending-review",
+      "name": "Store Pending Review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2150,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "options": {}
+      },
+      "id": "execute-store-review",
+      "name": "Execute Store Review",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2400,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "{{POSTGRES_CREDENTIAL_ID}}",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Record agent execution data and build multi-row INSERT SQL\ntry {\n  const context = $json;\n  const review_id = context.review_id;\n  const findings = context.findings || [];\n  const completedAt = new Date().toISOString();\n\n  function escapeSQL(val) {\n    if (val === null || val === undefined) return 'NULL';\n    if (typeof val === 'number') return String(val);\n    return \"'\" + String(val).replace(/'/g, \"''\") + \"'\";\n  }\n\n  const agentCategories = ['security', 'performance', 'style', 'architecture', 'test-coverage', 'code-quality', 'context'];\n\n  const valueRows = agentCategories.map(agent => {\n    const count = findings.filter(f => f.category === agent).length;\n    return `(${escapeSQL(review_id)}, ${escapeSQL(agent)}, ${count}, 'completed', ${escapeSQL(completedAt)})`;\n  });\n\n  const query = `INSERT INTO agent_runs (review_id, agent_name, findings_count, status, completed_at) VALUES ${valueRows.join(', ')}`;\n\n  return [{ json: { query } }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message } }];\n}"
+      },
+      "id": "record-agent-runs",
+      "name": "Record Agent Runs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        650
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "options": {}
+      },
+      "id": "insert-agent-runs",
+      "name": "Insert Agent Runs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2150,
+        650
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "{{POSTGRES_CREDENTIAL_ID}}",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT patterns, total_reviews, accepted_findings, rejected_findings FROM project_patterns WHERE project_id = $1 LIMIT 1",
+        "options": {
+          "queryParams": "={{ [$json.project_id] }}"
+        }
+      },
+      "id": "fetch-project-patterns",
+      "name": "Fetch Project Patterns",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        920,
+        350
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "{{POSTGRES_CREDENTIAL_ID}}",
+          "name": "PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Enrich review context with learned project patterns\ntry {\n  const context = $('Prepare Review Context').first().json;\n  const patternData = $input.first().json;\n  \n  let learnedContext = 'No historical review data available for this project.';\n  \n  if (patternData && patternData.patterns && !patternData.error) {\n    const patterns = typeof patternData.patterns === 'string' ? JSON.parse(patternData.patterns) : patternData.patterns;\n    const parts = [];\n    \n    if (patterns.conventions) {\n      parts.push(`Project conventions: ${JSON.stringify(patterns.conventions)}`);\n    }\n    if (patterns.common_ignore_rules && patterns.common_ignore_rules.length > 0) {\n      parts.push(`Commonly ignored patterns: ${patterns.common_ignore_rules.join(', ')}`);\n    }\n    if (patterns.false_positives && patterns.false_positives.length > 0) {\n      parts.push(`Known false positives to avoid: ${patterns.false_positives.slice(0, 10).join(', ')}`);\n    }\n    if (patterns.accepted_patterns && patterns.accepted_patterns.length > 0) {\n      parts.push(`Previously accepted issue types: ${patterns.accepted_patterns.slice(0, 10).join(', ')}`);\n    }\n    \n    if (parts.length > 0) {\n      learnedContext = `Project review history (${patternData.total_reviews || 0} reviews, ${patternData.accepted_findings || 0} accepted, ${patternData.rejected_findings || 0} rejected):\\n` + parts.join('\\n');\n    }\n  }\n  \n  // Pass through context with learned data added\n  return [{ json: { ...context, learned_context: learnedContext } }];\n} catch (error) {\n  // On error, pass context through without patterns\n  const context = $('Prepare Review Context').first().json;\n  return [{ json: { ...context, learned_context: 'No historical review data available for this project.' } }];\n}"
+      },
+      "id": "enrich-context",
+      "name": "Enrich Context with Patterns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        990,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Build all 7 AI agent request bodies with properly escaped content\ntry {\n  const ctx = $input.first().json;\n  const model = $('Config').first().json.OPENROUTER_MODEL;\n\n  // Build changed files text\n  const changedFilesText = ctx.changed_files.map(f => {\n    let header = '### ' + f.new_path;\n    if (f.old_path !== f.new_path) header += ' (renamed from ' + f.old_path + ')';\n    if (f.new_file) header += ' (NEW FILE)';\n    if (f.deleted_file) header += ' (DELETED)';\n    return header + '\\n```diff\\n' + f.diff + '\\n```';\n  }).join('\\n\\n');\n\n  const languages = ctx.detected_languages.join(', ');\n  const modeInstruction = ctx.config.review_mode_instruction;\n  const learnedCtx = ctx.learned_context || 'No historical data.';\n\n  // Common user prompt parts\n  function userPrompt(intro, opts) {\n    let p = intro + '\\n\\n';\n    p += 'Title: ' + ctx.title + '\\n';\n    if (opts.includeDesc) p += 'Description: ' + (ctx.description || '') + '\\n';\n    p += 'Branch: ' + ctx.source_branch + ' -> ' + ctx.target_branch + '\\n';\n    if (opts.includeLangs) p += 'Languages: ' + languages + '\\n';\n    p += '\\nChanged Files:\\n' + changedFilesText;\n    p += '\\n\\n' + (opts.returnInstruction || 'Return JSON array of findings following the format specified.');\n    p += '\\n\\nReview mode instruction: ' + modeInstruction;\n    p += '\\n\\nProject context from previous reviews:\\n' + learnedCtx;\n    return p;\n  }\n\n  function body(systemPrompt, userMsg, maxTokens) {\n    return {\n      model: model,\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userMsg }\n      ],\n      max_tokens: maxTokens || 8192,\n      temperature: 0.1\n    };\n  }\n\n  // === SYSTEM PROMPTS ===\n\n  const securitySystem = 'You are a Senior Security Engineer conducting a thorough code review.\\n\\nYour expertise includes:\\n- OWASP Top 10 vulnerabilities (SQL injection, XSS, CSRF, SSRF, etc.)\\n- Authentication and authorization flaws\\n- Secrets and credential management (API keys, passwords, tokens)\\n- Input validation and output encoding\\n- Cryptographic implementation issues\\n- API security (rate limiting, abuse prevention, injection)\\n- Dependency vulnerabilities\\n- Race conditions and concurrency issues\\n- Path traversal and file access issues\\n- Insecure deserialization\\n- LDAP/Command injection\\n- XXE (XML External Entity) attacks\\n\\nSeverity Guidelines:\\n- CRITICAL: Immediate security threat, exploitable without authentication, leads to data breach, RCE, or privilege escalation. Example: SQL injection with user input, hardcoded credentials, missing auth check on sensitive endpoint.\\n- HIGH: Security issue requiring specific conditions or authentication, significant impact. Example: XSS requiring user interaction, missing rate limiting, insecure direct object reference.\\n- MEDIUM: Security best practice violation, low exploitability or limited impact. Example: Missing security headers, overly permissive CORS, weak password policy.\\n- LOW: Minor security concern, theoretical issue or defense-in-depth recommendation. Example: Verbose error messages, missing logging for security events.\\n\\nFor each finding, provide:\\n1. file_path: Exact file path from diff\\n2. line: Approximate line number where issue occurs\\n3. severity: critical/high/medium/low (use above criteria)\\n4. category: security\\n5. subcategory: e.g., sql-injection, xss, auth-flaw, hardcoded-secrets, path-traversal\\n6. title: Concise issue name (under 60 chars)\\n7. description: Detailed explanation of the vulnerability and exploit scenario\\n8. suggestion: Specific fix with code example if applicable\\n9. cwe_id: Relevant CWE identifier (e.g., CWE-89 for SQL injection)\\n10. confidence: high/medium/low (how certain you are this is a real issue)\\n\\nContext to Consider:\\n- User input handling and sanitization\\n- Database query construction (ORM vs raw SQL)\\n- Authentication/authorization checks before sensitive operations\\n- Sensitive data handling (logging, error messages)\\n- External API calls and URL construction\\n- File operations and path handling\\n- Cryptographic operations (random number generation, hashing, encryption)\\n- Session management\\n\\nReturn ONLY a valid JSON array. Return [] if no security issues found.\\nDo not include markdown formatting.';\n\n  const performanceSystem = 'You are a Performance Optimization Specialist analyzing code for efficiency issues.\\n\\nYour expertise includes:\\n- Database query optimization (N+1 problems, missing indexes, inefficient joins)\\n- Algorithmic complexity analysis (Big O notation)\\n- Memory management and leaks\\n- Caching strategies and missed caching opportunities\\n- Async/concurrency patterns (blocking operations, race conditions)\\n- Network call optimization (batching, pagination)\\n- Resource cleanup (connection leaks, file handle leaks)\\n- Scalability concerns\\n- Inefficient data structures\\n- Redundant computations\\n\\nSeverity Guidelines:\\n- CRITICAL: O(n\\u00b2) or worse in hot path, memory leak, resource exhaustion, blocking operation in async context that causes deadlock. Example: Nested loops over large datasets, unclosed database connections, synchronous file I/O in event loop.\\n- HIGH: Inefficient query (N+1, missing index), blocking operation in async context, unnecessary loop over large dataset. Example: Querying inside a loop, synchronous sleep in async function, loading entire dataset into memory.\\n- MEDIUM: Suboptimal algorithm, missing optimization opportunity, inefficient but not catastrophic. Example: Using array instead of set for lookups, not using connection pooling.\\n- LOW: Minor performance consideration, micro-optimization, premature optimization. Example: Variable naming that does not affect performance, trivial string operations.\\n\\nFor each finding, provide:\\n1. file_path: Exact file path from diff\\n2. line: Approximate line number\\n3. severity: critical/high/medium/low\\n4. category: performance\\n5. subcategory: e.g., n-plus-one, memory-leak, blocking-io, inefficient-algorithm, missing-cache, query-optimization\\n6. title: Concise issue name\\n7. description: Performance impact explanation with technical details\\n8. suggestion: Optimization approach with before/after example if applicable\\n9. impact: Performance degradation estimate (e.g., \"Adds 500ms per 1000 records\", \"O(n\\u00b2) complexity\")\\n10. confidence: high/medium/low\\n\\nReturn ONLY a valid JSON array. Return [] if no performance issues found.';\n\n  const styleSystem = 'You are a Code Style Review Specialist ensuring code follows best practices and conventions.\\n\\nYour expertise includes:\\n- Naming conventions (camelCase, PascalCase, snake_case, kebab-case)\\n- Code formatting and consistency\\n- Documentation and comments\\n- Magic numbers and strings\\n- Function/method length and complexity\\n- Import organization\\n- Language-specific idioms and patterns\\n- Dead code and commented code\\n- TODO/FIXME/HACK comments\\n\\nSeverity Guidelines:\\n- HIGH: Violates fundamental naming convention, makes code unreadable, missing critical documentation. Example: Single letter variables outside loops, completely undocumented complex algorithm, misleading names.\\n- MEDIUM: Inconsistent naming, missing documentation on public APIs, non-idiomatic code. Example: Mixed naming styles in same file, missing JSDoc for public function.\\n- LOW: Minor style inconsistency, could be handled by linter. Example: Trailing whitespace, inconsistent spacing, missing period in comment.\\n\\nFor each finding, provide:\\n1. file_path: Exact file path from diff\\n2. line: Approximate line number\\n3. severity: high/medium/low\\n4. category: style\\n5. subcategory: e.g., naming-convention, formatting, documentation, magic-number, dead-code\\n6. title: Concise issue name\\n7. description: Why this is a style issue\\n8. suggestion: How to fix it\\n9. auto_fixable: true/false\\n10. confidence: high/medium/low\\n\\nReturn ONLY a valid JSON array. Return [] if no style issues found.';\n\n  const architectureSystem = 'You are a Software Architecture Review Specialist evaluating code design and structure.\\n\\nYour expertise includes:\\n- SOLID principles (Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion)\\n- Design patterns (GoF patterns, enterprise patterns)\\n- Coupling and cohesion analysis\\n- Separation of concerns\\n- Abstraction layers and boundaries\\n- Dependency injection and inversion\\n- Module and package structure\\n- API design principles\\n- Domain-driven design concepts\\n\\nSeverity Guidelines:\\n- CRITICAL: Violates fundamental architectural principle, creates tight coupling that will cause maintenance issues. Example: God object, circular dependencies, violation of layer boundaries.\\n- HIGH: Significant architectural concern, moderate coupling violation, missing abstraction. Example: Business logic in controller, concrete dependency instead of interface.\\n- MEDIUM: Minor architectural issue, could lead to problems. Example: Large class approaching SRP violation, unclear module responsibility.\\n- LOW: Suggestion for improvement, not an issue per se. Example: Could benefit from a pattern, minor abstraction opportunity.\\n\\nFor each finding, provide:\\n1. file_path: Exact file path from diff\\n2. line: Approximate line number\\n3. severity: critical/high/medium/low\\n4. category: architecture\\n5. subcategory: e.g., solid-violation, coupling, cohesion, separation-of-concerns, missing-abstraction, design-pattern\\n6. title: Concise issue name\\n7. description: Architectural concern explanation\\n8. suggestion: Refactoring approach\\n9. impact: Long-term maintenance impact\\n10. confidence: high/medium/low\\n\\nReturn ONLY a valid JSON array. Return [] if no architecture issues found.';\n\n  const testCoverageSystem = 'You are a Test Coverage and Quality Specialist evaluating test completeness and effectiveness.\\n\\nYour expertise includes:\\n- Unit test coverage for new code\\n- Edge case identification\\n- Error handling and failure scenarios\\n- Integration testing needs\\n- Test quality and meaningful assertions\\n- Mock and stub usage\\n- Test organization and structure\\n- Property-based testing considerations\\n- Security testing gaps\\n- Performance testing needs\\n\\nSeverity Guidelines:\\n- CRITICAL: Completely untested critical path (auth, payment, data modification), missing error handling that could cause crashes.\\n- HIGH: Significant gap in test coverage, untested edge case that is likely to occur in production. Example: No test for new feature, missing null check, untested error path.\\n- MEDIUM: Partial test coverage, missing less common edge cases. Example: Only happy path tested, missing boundary conditions.\\n- LOW: Suggestion for additional test, minor coverage gap. Example: Could add property test, missing edge case with very low probability.\\n\\nFor each finding, provide:\\n1. file_path: Exact file path from diff\\n2. line: Approximate line number of untested code\\n3. severity: critical/high/medium/low\\n4. category: test-coverage\\n5. subcategory: e.g., missing-unit-test, missing-edge-case, error-handling, integration-test, assertion-quality\\n6. title: Concise issue name\\n7. description: What is missing and why it matters\\n8. suggestion: Specific test case to add\\n9. test_example: Code example of test that should be added\\n10. confidence: high/medium/low\\n\\nReturn ONLY a valid JSON array. Return [] if no test coverage issues found.';\n\n  const codeQualitySystem = 'You are a Code Quality Specialist evaluating code maintainability and technical debt.\\n\\nYour expertise includes:\\n- Cyclomatic complexity analysis\\n- Code smell detection (long methods, large classes, feature envy)\\n- Duplicate code identification\\n- Maintainability index\\n- Code duplication\\n- Error handling patterns\\n- Exception handling best practices\\n- Resource management\\n- Null safety and optional handling\\n- Type safety concerns\\n\\nSeverity Guidelines:\\n- CRITICAL: Excessive complexity (cyclomatic complexity > 15), unreachable code, guaranteed runtime error. Example: Nested conditionals 5+ levels deep, always true/false condition, missing null check before dereference.\\n- HIGH: High complexity (10-15), significant code duplication, error-prone pattern. Example: Large method (>100 lines), repeated code block 3+ times, generic exception catch.\\n- MEDIUM: Moderate complexity, some duplication, could be improved. Example: Medium method (50-100 lines), slight code repetition, vague error message.\\n- LOW: Minor quality improvement opportunity. Example: Could extract small helper, overly verbose but clear.\\n\\nFor each finding, provide:\\n1. file_path: Exact file path from diff\\n2. line: Approximate line number\\n3. severity: critical/high/medium/low\\n4. category: code-quality\\n5. subcategory: e.g., complexity, code-duplication, error-handling, maintainability, null-safety, resource-leak\\n6. title: Concise issue name\\n7. description: Quality concern explanation\\n8. suggestion: Refactoring approach\\n9. metrics: Specific metrics (e.g., \"cyclomatic complexity: 18\", \"method length: 145 lines\")\\n10. confidence: high/medium/low\\n\\nReturn ONLY a valid JSON array. Return [] if no code quality issues found.';\n\n  const contextSystem = 'You are a Codebase Context Analyst analyzing changes for consistency and completeness.\\n\\nYour expertise includes:\\n- File relationships and dependencies\\n- Import/export consistency\\n- API contract changes\\n- Database migration alignment\\n- Configuration updates\\n- Documentation synchronization\\n- Breaking change detection\\n- Missing related changes\\n- Inconsistent patterns across files\\n- Potential ripple effects\\n\\nSeverity Guidelines:\\n- CRITICAL: Breaking change without migration, missing critical file (e.g., DB change without migration), API contract violation.\\n- HIGH: Missing import, inconsistent API signature, undocumented breaking change, missing related update.\\n- MEDIUM: Inconsistent pattern, missing documentation update, configuration drift.\\n- LOW: Minor inconsistency, suggestion for consistency improvement.\\n\\nFor each finding, provide:\\n1. file_path: File with the context issue\\n2. line: Approximate line number\\n3. severity: critical/high/medium/low\\n4. category: context\\n5. subcategory: e.g., missing-import, inconsistent-pattern, missing-migration, ripple-effect, breaking-change, missing-related-file\\n6. title: Concise issue name\\n7. description: Context/relationship issue explanation\\n8. suggestion: What additional changes are needed\\n9. related_files: List of files that may need related changes (array of strings)\\n10. confidence: high/medium/low\\n\\nReturn ONLY a valid JSON array. Return [] if no context issues found.';\n\n  // === USER PROMPTS ===\n\n  const securityUser = userPrompt('Review this MR for security issues:', { includeDesc: true, includeLangs: true, returnInstruction: 'Return JSON array of findings following the format specified. Focus on actionable, high-confidence issues.' });\n  const performanceUser = userPrompt('Review this MR for performance issues:', { includeDesc: false, includeLangs: true, returnInstruction: 'Return JSON array of findings. Focus on issues that will have measurable performance impact.' });\n  const styleUser = userPrompt('Review this MR for style issues:', { includeDesc: false, includeLangs: true, returnInstruction: 'Return JSON array of findings. Focus on issues that impact code readability and maintainability.' });\n  const architectureUser = userPrompt('Review this MR for architecture issues:', { includeDesc: true, includeLangs: false, returnInstruction: 'Return JSON array of findings. Consider the broader architectural implications of these changes.' });\n  const testCoverageUser = userPrompt('Review this MR for test coverage issues:', { includeDesc: false, includeLangs: false, returnInstruction: 'Return JSON array of findings. Focus on critical and high severity gaps that could lead to production issues.' });\n  const codeQualityUser = userPrompt('Review this MR for code quality issues:', { includeDesc: false, includeLangs: false, returnInstruction: 'Return JSON array of findings. Focus on issues that impact maintainability and technical debt.' });\n  const contextUser = userPrompt('Analyze this MR for context and consistency issues:', { includeDesc: true, includeLangs: true, returnInstruction: 'Return JSON array of findings. Look for missing related changes, inconsistencies, and potential breaking changes.' });\n\n  // === BUILD BODIES ===\n\n  return [{\n    json: {\n      ...ctx,\n      security_body: body(securitySystem, securityUser, 8192),\n      performance_body: body(performanceSystem, performanceUser, 8192),\n      style_body: body(styleSystem, styleUser, 6144),\n      architecture_body: body(architectureSystem, architectureUser, 8192),\n      test_coverage_body: body(testCoverageSystem, testCoverageUser, 8192),\n      code_quality_body: body(codeQualitySystem, codeQualityUser, 8192),\n      context_body: body(contextSystem, contextUser, 8192)\n    }\n  }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stack: error.stack } }];\n}"
+      },
+      "id": "prepare-agent-bodies",
+      "name": "Prepare Agent Bodies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.stats.critical }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-critical",
+      "name": "Check Critical Findings",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.CRITICAL_NOTIFICATION_WEBHOOK }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { text: '🔴 CRITICAL: AI Code Review found ' + $json.stats.critical + ' critical issue(s) in MR !' + $json.mr_iid, review_id: $json.review_id, mr_iid: $json.mr_iid, project_id: $json.project_id, risk_score: $json.risk_score, critical_count: $json.stats.critical, executive_summary: $json.executive_summary } }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "send-critical-notification",
+      "name": "Send Critical Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2150,
+        800
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Format Draft Comment').first().json.context.gitlab_url }}/api/v4/projects/{{ $('Format Draft Comment').first().json.project_id }}/merge_requests/{{ $('Format Draft Comment').first().json.mr_iid }}/discussions/{{ $('Post Draft Comment to GitLab').first().json.id }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $('Format Draft Comment').first().json.cto_comment } }}",
+        "options": {}
+      },
+      "id": "post-cto-reply",
+      "name": "Post CTO Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2050,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{GITLAB_HEADER_AUTH_ID}}",
+          "name": "GitLab Private Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "GitLab MR Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Filter MR Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter MR Events": {
+      "main": [
+        [
+          {
+            "node": "Fetch MR Diff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Fetch MR Diff": {
+      "main": [
+        [
+          {
+            "node": "Prepare Review Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Review Context": {
+      "main": [
+        [
+          {
+            "node": "Fetch Project Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Project Patterns": {
+      "main": [
+        [
+          {
+            "node": "Enrich Context with Patterns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Context with Patterns": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Bodies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Bodies": {
+      "main": [
+        [
+          {
+            "node": "Security Review Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Performance Review Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Style Review Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Architecture Review Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Test Coverage Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code Quality Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Context Analyzer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security Review Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Agent Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Performance Review Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Agent Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Style Review Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Agent Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Architecture Review Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Agent Results",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Test Coverage Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Agent Results",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Code Quality Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Agent Results",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Context Analyzer Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Agent Results",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "Aggregate Agent Results": {
+      "main": [
+        [
+          {
+            "node": "Format Draft Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Draft Comment": {
+      "main": [
+        [
+          {
+            "node": "Post Draft Comment to GitLab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Record Agent Runs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Critical Findings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Critical Findings": {
+      "main": [
+        [
+          {
+            "node": "Send Critical Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Record Agent Runs": {
+      "main": [
+        [
+          {
+            "node": "Insert Agent Runs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Draft Comment to GitLab": {
+      "main": [
+        [
+          {
+            "node": "Post CTO Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Pending Review": {
+      "main": [
+        [
+          {
+            "node": "Execute Store Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post CTO Reply": {
+      "main": [
+        [
+          {
+            "node": "Store Pending Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "gitlab",
+      "id": "1"
+    },
+    {
+      "name": "code-review",
+      "id": "2"
+    },
+    {
+      "name": "ai-agents",
+      "id": "3"
+    },
+    {
+      "name": "v3",
+      "id": "4"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "3.0.0"
+}

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 1: Database Setup - PR Agent</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117;
+            --bg-card: #1a1d27;
+            --bg-code: #141620;
+            --border: #2a2e3d;
+            --text: #e1e4ed;
+            --text-dim: #8b8fa3;
+            --accent: #6c5ce7;
+            --accent-glow: rgba(108, 92, 231, 0.15);
+            --green: #00b894;
+            --orange: #fdcb6e;
+            --red: #e17055;
+            --blue: #74b9ff;
+            --radius: 12px;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        .container { max-width: 860px; margin: 0 auto; padding: 40px 24px; }
+
+        /* Progress Bar */
+        .progress { display: flex; align-items: center; gap: 0; margin-bottom: 40px; }
+        .progress-step {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 0.8rem; color: var(--text-dim);
+            text-decoration: none;
+        }
+        .progress-step.active { color: var(--accent); font-weight: 600; }
+        .progress-step.done { color: var(--green); }
+        .progress-dot {
+            width: 28px; height: 28px; border-radius: 50%;
+            border: 2px solid var(--border);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.75rem; font-weight: 700;
+        }
+        .progress-step.active .progress-dot { border-color: var(--accent); background: var(--accent); color: #fff; }
+        .progress-step.done .progress-dot { border-color: var(--green); background: var(--green); color: #fff; }
+        .progress-line { flex: 1; height: 2px; background: var(--border); margin: 0 8px; }
+
+        /* Header */
+        .page-header { margin-bottom: 32px; }
+        .page-header .label { font-size: 0.85rem; color: var(--accent); font-weight: 600; margin-bottom: 8px; }
+        .page-header h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 8px; }
+        .page-header p { color: var(--text-dim); font-size: 0.95rem; }
+
+        /* Sections */
+        .section { margin-bottom: 36px; }
+        .section h2 { font-size: 1.2rem; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+        .section h3 { font-size: 1rem; margin-bottom: 12px; color: var(--blue); }
+
+        /* Steps list */
+        .steps-list { list-style: none; counter-reset: step; }
+        .steps-list li {
+            counter-increment: step;
+            padding: 12px 0 12px 40px;
+            position: relative;
+            border-left: 2px solid var(--border);
+            margin-left: 12px;
+        }
+        .steps-list li::before {
+            content: counter(step);
+            position: absolute; left: -13px; top: 12px;
+            width: 24px; height: 24px; border-radius: 50%;
+            background: var(--bg-card); border: 2px solid var(--accent);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem; font-weight: 700; color: var(--accent);
+        }
+        .steps-list li:last-child { border-left-color: transparent; }
+
+        /* Code block */
+        .code-block {
+            position: relative;
+            background: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin: 16px 0;
+            overflow: hidden;
+        }
+        .code-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid var(--border);
+        }
+        .code-label { font-size: 0.75rem; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .copy-btn {
+            background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+            padding: 4px 12px; border-radius: 6px; cursor: pointer;
+            font-size: 0.75rem; transition: all 0.2s;
+            display: flex; align-items: center; gap: 4px;
+        }
+        .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .copy-btn.copied { border-color: var(--green); color: var(--green); }
+        .code-content {
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'Courier New', Consolas, monospace;
+            font-size: 0.82rem;
+            line-height: 1.7;
+            white-space: pre;
+            color: var(--text-dim);
+        }
+        .code-content .keyword { color: var(--accent); }
+        .code-content .type { color: var(--blue); }
+        .code-content .string { color: var(--green); }
+        .code-content .comment { color: #555b6e; font-style: italic; }
+
+        /* Info box */
+        .info-box {
+            background: var(--bg-card);
+            border-left: 3px solid var(--orange);
+            border-radius: 0 var(--radius) var(--radius) 0;
+            padding: 16px 20px;
+            margin: 16px 0;
+            font-size: 0.9rem;
+        }
+        .info-box .title { font-weight: 600; color: var(--orange); margin-bottom: 4px; }
+
+        /* Table */
+        table {
+            width: 100%; border-collapse: collapse; margin: 16px 0;
+            font-size: 0.85rem;
+        }
+        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-dim); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { color: var(--text); }
+        td code { background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; }
+
+        /* Navigation */
+        .nav-footer {
+            display: flex; justify-content: space-between; align-items: center;
+            padding-top: 32px; margin-top: 40px; border-top: 1px solid var(--border);
+        }
+        .nav-btn {
+            display: flex; align-items: center; gap: 8px;
+            text-decoration: none; color: var(--text);
+            padding: 10px 20px; border-radius: var(--radius);
+            border: 1px solid var(--border); font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .nav-btn:hover { border-color: var(--accent); background: var(--accent-glow); }
+        .nav-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .nav-btn.primary:hover { background: #5a4bd4; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Progress Bar -->
+        <div class="progress">
+            <a class="progress-step active" href="step-1-database.html"><div class="progress-dot">1</div><span>Database</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step" href="step-2-credentials.html"><div class="progress-dot">2</div><span>Credentials</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step" href="step-3-workflows.html"><div class="progress-dot">3</div><span>Workflows</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step" href="step-4-launch.html"><div class="progress-dot">4</div><span>Launch</span></a>
+        </div>
+
+        <!-- Header -->
+        <div class="page-header">
+            <div class="label">Step 1 of 4</div>
+            <h1>Database Setup</h1>
+            <p>Create a Supabase project (or use your own PostgreSQL) and run the schema migrations.</p>
+        </div>
+
+        <!-- Section: Create Project -->
+        <div class="section">
+            <h2>1.1 Create Supabase Project</h2>
+            <ol class="steps-list">
+                <li>Go to <strong>https://supabase.com</strong> and sign up (or use your own PostgreSQL instance)</li>
+                <li>Click <strong>"New Project"</strong> &mdash; name it <code>gitlab-reviews</code>, set a strong database password, pick the closest region</li>
+                <li>Wait 2&ndash;3 minutes for provisioning to complete</li>
+            </ol>
+        </div>
+
+        <!-- Section: Base Table -->
+        <div class="section">
+            <h2>1.2 Create Base Table</h2>
+            <p>Open <strong>SQL Editor</strong> in Supabase and run this query:</p>
+
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-label">SQL &mdash; Base Table</span>
+                    <button class="copy-btn" onclick="copyCode(this, 'sql-base')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                        Copy
+                    </button>
+                </div>
+                <div class="code-content" id="sql-base">-- Create table for storing pending reviews
+CREATE TABLE pending_reviews (
+    id SERIAL PRIMARY KEY,
+    review_id VARCHAR(255) UNIQUE NOT NULL,
+    mr_iid INTEGER NOT NULL,
+    project_id INTEGER NOT NULL,
+    findings JSONB NOT NULL,
+    stats JSONB,
+    draft_note_id INTEGER,
+    base_sha VARCHAR(64),
+    head_sha VARCHAR(64),
+    start_sha VARCHAR(64),
+    status VARCHAR(50) DEFAULT 'pending_approval',
+    approved_by VARCHAR(255),
+    approved_at TIMESTAMP,
+    rejected_by VARCHAR(255),
+    rejected_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create indexes for fast lookups
+CREATE INDEX idx_pending_reviews_review_id ON pending_reviews(review_id);
+CREATE INDEX idx_pending_reviews_status ON pending_reviews(status);
+CREATE INDEX idx_pending_reviews_mr ON pending_reviews(project_id, mr_iid);</div>
+            </div>
+
+            <p>You should see <strong>"Success. No rows returned"</strong>.</p>
+        </div>
+
+        <!-- Section: v3 Migration -->
+        <div class="section">
+            <h2>1.3 Run v3.0 Migration</h2>
+            <p>This adds the learning system &mdash; 5 new tables, helper functions, and a dashboard view. Run this in the same SQL Editor:</p>
+
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-label">SQL &mdash; v3.0 Migration (6 tables, 2 functions, 1 view)</span>
+                    <button class="copy-btn" onclick="copyCode(this, 'sql-migration')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                        Copy
+                    </button>
+                </div>
+                <div class="code-content" id="sql-migration">-- =====================================================
+-- GitLab MR Review System - Database Migration v3.0
+-- =====================================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Add new columns to pending_reviews
+ALTER TABLE pending_reviews
+ADD COLUMN IF NOT EXISTS context_data JSONB DEFAULT '{}',
+ADD COLUMN IF NOT EXISTS file_analysis JSONB DEFAULT '{}',
+ADD COLUMN IF NOT EXISTS confidence_score DECIMAL(5,2),
+ADD COLUMN IF NOT EXISTS review_metadata JSONB DEFAULT '{}',
+ADD COLUMN IF NOT EXISTS custom_comments JSONB DEFAULT '[]';
+
+CREATE INDEX IF NOT EXISTS idx_pending_reviews_confidence
+    ON pending_reviews(confidence_score) WHERE confidence_score IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pending_reviews_metadata
+    ON pending_reviews USING GIN(review_metadata);
+
+-- Review History (Learning System)
+CREATE TABLE IF NOT EXISTS review_history (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    mr_iid INTEGER NOT NULL,
+    file_path VARCHAR(512) NOT NULL,
+    issue_type VARCHAR(100) NOT NULL,
+    issue_subcategory VARCHAR(100),
+    pattern_hash VARCHAR(64),
+    severity VARCHAR(20),
+    finding_data JSONB,
+    was_accepted BOOLEAN,
+    was_fixed BOOLEAN DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    reviewed_at TIMESTAMP,
+    review_id VARCHAR(255)
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_history_project ON review_history(project_id, file_path);
+CREATE INDEX IF NOT EXISTS idx_review_history_pattern ON review_history(pattern_hash) WHERE pattern_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_review_history_type ON review_history(issue_type, issue_subcategory);
+CREATE INDEX IF NOT EXISTS idx_review_history_accepted ON review_history(was_accepted) WHERE was_accepted IS NOT NULL;
+
+-- Project Patterns (Context Awareness)
+CREATE TABLE IF NOT EXISTS project_patterns (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL UNIQUE,
+    patterns JSONB NOT NULL,
+    last_updated TIMESTAMP DEFAULT NOW(),
+    total_reviews INTEGER DEFAULT 0,
+    accepted_findings INTEGER DEFAULT 0,
+    rejected_findings INTEGER DEFAULT 0
+);
+
+-- Ignored Patterns (Auto-Ignore)
+CREATE TABLE IF NOT EXISTS ignored_patterns (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    pattern_type VARCHAR(100) NOT NULL,
+    pattern_regex VARCHAR(512),
+    added_by VARCHAR(255),
+    reason TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(project_id, pattern_type)
+);
+
+-- Agent Runs (Performance Tracking)
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id SERIAL PRIMARY KEY,
+    review_id VARCHAR(255) NOT NULL,
+    agent_name VARCHAR(100) NOT NULL,
+    started_at TIMESTAMP DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    duration_ms INTEGER,
+    tokens_used INTEGER,
+    findings_count INTEGER,
+    error_message TEXT,
+    status VARCHAR(50) DEFAULT 'running'
+);
+
+-- CTO Feedback (Continuous Improvement)
+CREATE TABLE IF NOT EXISTS cto_feedback (
+    id SERIAL PRIMARY KEY,
+    review_id VARCHAR(255) NOT NULL,
+    project_id INTEGER NOT NULL,
+    mr_iid INTEGER NOT NULL,
+    feedback_type VARCHAR(100) NOT NULL,
+    feedback TEXT NOT NULL,
+    severity VARCHAR(20),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Helper: Pattern Hash
+CREATE OR REPLACE FUNCTION calculate_pattern_hash(code_snippet TEXT, issue_type VARCHAR)
+RETURNS VARCHAR(64) AS $$
+BEGIN
+    RETURN encode(digest(issue_type || ':' || substring(code_snippet, 1, 1000), 'sha256'), 'hex');
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- Helper: Project Stats
+CREATE OR REPLACE FUNCTION get_project_stats(p_project_id INTEGER)
+RETURNS JSONB AS $$
+DECLARE
+    v_stats JSONB;
+BEGIN
+    SELECT jsonb_build_object(
+        'total_reviews', COUNT(DISTINCT rh.review_id),
+        'accepted_findings', COUNT(*) FILTER (WHERE rh.was_accepted = TRUE),
+        'rejected_findings', COUNT(*) FILTER (WHERE rh.was_accepted = FALSE),
+        'most_common_issues', (
+            SELECT jsonb_agg(jsonb_build_object('type', issue_type, 'count', cnt))
+            FROM (
+                SELECT issue_type, COUNT(*) as cnt
+                FROM review_history WHERE project_id = p_project_id
+                GROUP BY issue_type ORDER BY cnt DESC LIMIT 5
+            ) sub
+        )
+    ) INTO v_stats
+    FROM review_history rh WHERE rh.project_id = p_project_id;
+    RETURN COALESCE(v_stats, '{}'::jsonb);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Dashboard View
+CREATE OR REPLACE VIEW active_reviews_dashboard AS
+SELECT
+    pr.review_id, pr.mr_iid, pr.project_id, pr.status,
+    pr.created_at, pr.confidence_score,
+    (pr.review_metadata->>'risk_score')::INTEGER AS risk_score,
+    (pr.review_metadata->>'executive_summary')::TEXT AS executive_summary,
+    (pr.stats->>'total')::INTEGER AS total_findings,
+    (pr.stats->>'critical')::INTEGER AS critical_findings,
+    (pr.stats->>'high')::INTEGER AS high_findings,
+    pr.approved_by
+FROM pending_reviews pr
+WHERE pr.status IN ('pending_approval', 'changes_requested')
+ORDER BY (pr.stats->>'critical')::INTEGER DESC, pr.created_at ASC;</div>
+            </div>
+        </div>
+
+        <!-- Section: Get Connection Info -->
+        <div class="section">
+            <h2>1.4 Save Connection Info</h2>
+            <p>Go to <strong>Settings &rarr; Database</strong> in Supabase and note these values:</p>
+            <table>
+                <thead><tr><th>Parameter</th><th>Example</th></tr></thead>
+                <tbody>
+                    <tr><td>Host</td><td><code>db.abcdefgh.supabase.co</code></td></tr>
+                    <tr><td>Port</td><td><code>5432</code></td></tr>
+                    <tr><td>Database</td><td><code>postgres</code></td></tr>
+                    <tr><td>User</td><td><code>postgres</code></td></tr>
+                    <tr><td>Password</td><td><code>(the one you set in 1.1)</code></td></tr>
+                </tbody>
+            </table>
+
+            <div class="info-box">
+                <div class="title">Using your own PostgreSQL?</div>
+                Just run the same SQL queries above against your database. Any PostgreSQL 14+ instance works.
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="nav-footer">
+            <a href="index.html" class="nav-btn">&larr; Overview</a>
+            <a href="step-2-credentials.html" class="nav-btn primary">Next: API Keys &amp; Configuration &rarr;</a>
+        </div>
+    </div>
+
+    <script>
+        function copyCode(btn, id) {
+            const el = document.getElementById(id);
+            const text = el.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                btn.classList.add('copied');
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg> Copied!';
+                setTimeout(() => {
+                    btn.classList.remove('copied');
+                    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> Copy';
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>

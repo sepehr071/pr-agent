@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 4: Launch &amp; Verify - PR Agent</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117; --bg-card: #1a1d27; --bg-code: #141620;
+            --border: #2a2e3d; --text: #e1e4ed; --text-dim: #8b8fa3;
+            --accent: #6c5ce7; --accent-glow: rgba(108, 92, 231, 0.15);
+            --green: #00b894; --orange: #fdcb6e; --red: #e17055; --blue: #74b9ff;
+            --radius: 12px;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; min-height: 100vh; }
+        .container { max-width: 860px; margin: 0 auto; padding: 40px 24px; }
+        .progress { display: flex; align-items: center; gap: 0; margin-bottom: 40px; }
+        .progress-step { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-dim); text-decoration: none; }
+        .progress-step.active { color: var(--accent); font-weight: 600; }
+        .progress-step.done { color: var(--green); }
+        .progress-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }
+        .progress-step.active .progress-dot { border-color: var(--accent); background: var(--accent); color: #fff; }
+        .progress-step.done .progress-dot { border-color: var(--green); background: var(--green); color: #fff; }
+        .progress-line { flex: 1; height: 2px; background: var(--border); margin: 0 8px; }
+        .page-header { margin-bottom: 32px; }
+        .page-header .label { font-size: 0.85rem; color: var(--accent); font-weight: 600; margin-bottom: 8px; }
+        .page-header h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 8px; }
+        .page-header p { color: var(--text-dim); font-size: 0.95rem; }
+        .section { margin-bottom: 36px; }
+        .section h2 { font-size: 1.2rem; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+        .steps-list { list-style: none; counter-reset: step; }
+        .steps-list li { counter-increment: step; padding: 12px 0 12px 40px; position: relative; border-left: 2px solid var(--border); margin-left: 12px; }
+        .steps-list li::before { content: counter(step); position: absolute; left: -13px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: var(--accent); }
+        .steps-list li:last-child { border-left-color: transparent; }
+        .code-block { position: relative; background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--radius); margin: 16px 0; overflow: hidden; }
+        .code-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); }
+        .code-label { font-size: 0.75rem; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .copy-btn { background: transparent; border: 1px solid var(--border); color: var(--text-dim); padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s; display: flex; align-items: center; gap: 4px; }
+        .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .copy-btn.copied { border-color: var(--green); color: var(--green); }
+        .code-content { padding: 16px; overflow-x: auto; font-family: 'Courier New', Consolas, monospace; font-size: 0.82rem; line-height: 1.7; white-space: pre; color: var(--text-dim); }
+        .info-box { background: var(--bg-card); border-left: 3px solid var(--orange); border-radius: 0 var(--radius) var(--radius) 0; padding: 16px 20px; margin: 16px 0; font-size: 0.9rem; }
+        .info-box .title { font-weight: 600; color: var(--orange); margin-bottom: 4px; }
+        .info-box.success { border-left-color: var(--green); }
+        .info-box.success .title { color: var(--green); }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.85rem; }
+        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-dim); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        td code { background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; }
+
+        /* Checklist */
+        .checklist { list-style: none; margin: 16px 0; }
+        .checklist li {
+            padding: 10px 16px; margin: 4px 0;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 8px; font-size: 0.9rem;
+            display: flex; align-items: center; gap: 12px;
+            cursor: pointer; transition: all 0.2s; user-select: none;
+        }
+        .checklist li:hover { border-color: var(--accent); }
+        .checklist li.checked { border-color: var(--green); opacity: 0.7; }
+        .checklist li .checkbox {
+            width: 20px; height: 20px; border: 2px solid var(--border);
+            border-radius: 4px; flex-shrink: 0; display: flex;
+            align-items: center; justify-content: center; transition: all 0.2s;
+        }
+        .checklist li.checked .checkbox {
+            background: var(--green); border-color: var(--green);
+        }
+        .checklist li.checked .checkbox::after {
+            content: '\\2713'; color: #fff; font-size: 0.75rem; font-weight: 700;
+        }
+        .checklist li.checked .label-text { text-decoration: line-through; }
+
+        /* Command cards */
+        .cmd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin: 16px 0; }
+        .cmd-card {
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .cmd-card:hover { border-color: var(--accent); }
+        .cmd-card.copied-card { border-color: var(--green); }
+        .cmd-card code {
+            background: var(--bg-code); padding: 4px 10px; border-radius: 6px;
+            font-size: 0.82rem; white-space: nowrap;
+        }
+        .cmd-card .cmd-desc { font-size: 0.8rem; color: var(--text-dim); }
+        .cmd-card .copy-icon {
+            margin-left: auto; color: var(--text-dim); font-size: 0.7rem;
+            opacity: 0; transition: opacity 0.2s;
+        }
+        .cmd-card:hover .copy-icon { opacity: 1; }
+
+        /* Troubleshooting */
+        .trouble-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); margin: 8px 0; overflow: hidden; }
+        .trouble-q { padding: 14px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 0.9rem; }
+        .trouble-q:hover { background: var(--bg-card-hover); }
+        .trouble-a { padding: 0 20px 14px; font-size: 0.85rem; color: var(--text-dim); display: none; }
+        .trouble-item.open .trouble-a { display: block; }
+        .trouble-item.open .trouble-arrow { transform: rotate(180deg); }
+        .trouble-arrow { transition: transform 0.2s; color: var(--text-dim); }
+
+        .nav-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 32px; margin-top: 40px; border-top: 1px solid var(--border); }
+        .nav-btn { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border); font-size: 0.9rem; transition: all 0.2s; }
+        .nav-btn:hover { border-color: var(--accent); background: var(--accent-glow); }
+        .nav-btn.primary { background: var(--green); border-color: var(--green); color: #fff; }
+        .nav-btn.primary:hover { background: #00a884; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="progress">
+            <a class="progress-step done" href="step-1-database.html"><div class="progress-dot">&#10003;</div><span>Database</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step done" href="step-2-credentials.html"><div class="progress-dot">&#10003;</div><span>Credentials</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step done" href="step-3-workflows.html"><div class="progress-dot">&#10003;</div><span>Workflows</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step active" href="step-4-launch.html"><div class="progress-dot">4</div><span>Launch</span></a>
+        </div>
+
+        <div class="page-header">
+            <div class="label">Step 4 of 4</div>
+            <h1>Launch &amp; Verify</h1>
+            <p>Activate workflows, test with a real MR, and verify everything works end-to-end.</p>
+        </div>
+
+        <!-- Activate -->
+        <div class="section">
+            <h2>4.1 Activate Workflows</h2>
+            <ol class="steps-list">
+                <li>In n8n, open <strong>workflow-main</strong> &rarr; toggle <strong>"Active"</strong> switch (top right) to <strong>ON</strong> (green)</li>
+                <li>Open <strong>workflow-approval</strong> &rarr; toggle <strong>"Active"</strong> to <strong>ON</strong></li>
+            </ol>
+            <p>Both workflows should now show as <strong>Active</strong> in your workflow list.</p>
+        </div>
+
+        <!-- Test -->
+        <div class="section">
+            <h2>4.2 Test with a Real MR</h2>
+            <ol class="steps-list">
+                <li>Go to your GitLab project and create a <strong>new branch</strong> with some code changes (ideally with an intentional issue like SQL injection or missing error handling)</li>
+                <li>Create a <strong>Merge Request</strong> from that branch</li>
+                <li>Wait <strong>30&ndash;60 seconds</strong> and refresh the MR page</li>
+                <li>You should see a draft comment like this:
+
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span class="code-label">Expected Draft Comment</span>
+                            <button class="copy-btn" onclick="copyCode(this, 'draft-example')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                                Copy
+                            </button>
+                        </div>
+                        <div class="code-content" id="draft-example">## AI Code Review - Pending CTO Approval
+
+### Executive Summary
+Risk Level: MEDIUM (Score: 35/100) | AI Confidence: 82%
+Recommendation: REVIEW RECOMMENDED
+
+### Findings:
+#1 [HIGH] SQL Injection Vulnerability - security
+    File: src/api/users.py:12
+    ...
+
+### CTO Action Required
+Reply with: !approve, !reject, or !approve-partial 1,3</div>
+                    </div>
+                </li>
+            </ol>
+        </div>
+
+        <!-- Test Commands -->
+        <div class="section">
+            <h2>4.3 Test CTO Commands</h2>
+            <p>Reply to the draft comment with these commands (click to copy):</p>
+
+            <div class="cmd-grid">
+                <div class="cmd-card" onclick="copyCmd(this, '!approve')">
+                    <code>!approve</code>
+                    <span class="cmd-desc">Post all findings</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+                <div class="cmd-card" onclick="copyCmd(this, '!reject')">
+                    <code>!reject</code>
+                    <span class="cmd-desc">Discard review</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+                <div class="cmd-card" onclick="copyCmd(this, '!approve-partial 1,2')">
+                    <code>!approve-partial 1,2</code>
+                    <span class="cmd-desc">Post selected only</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+                <div class="cmd-card" onclick="copyCmd(this, '!list-findings')">
+                    <code>!list-findings</code>
+                    <span class="cmd-desc">Re-display findings</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+                <div class="cmd-card" onclick="copyCmd(this, '!explain 1')">
+                    <code>!explain 1</code>
+                    <span class="cmd-desc">Detailed explanation</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+                <div class="cmd-card" onclick="copyCmd(this, '!remove-finding 2')">
+                    <code>!remove-finding 2</code>
+                    <span class="cmd-desc">Remove a finding</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+                <div class="cmd-card" onclick="copyCmd(this, '!edit-finding 1 severity:low')">
+                    <code>!edit-finding 1 severity:low</code>
+                    <span class="cmd-desc">Change severity</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+                <div class="cmd-card" onclick="copyCmd(this, '!rerun-agent security')">
+                    <code>!rerun-agent security</code>
+                    <span class="cmd-desc">Re-run an agent</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+                <div class="cmd-card" onclick="copyCmd(this, '!add-comment src/app.js:42 &quot;Add validation here&quot;')">
+                    <code>!add-comment file:line "msg"</code>
+                    <span class="cmd-desc">Custom comment</span>
+                    <span class="copy-icon">click to copy</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Verification Checklist -->
+        <div class="section">
+            <h2>4.4 Verification Checklist</h2>
+            <p>Click each item as you verify it:</p>
+
+            <ul class="checklist" id="checklist">
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">Supabase tables created (run verification queries from migration)</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">All 4 n8n credentials saved and tested</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">9 environment variables configured</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">Both workflows imported and credentials connected</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">Both workflows set to Active (green)</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">2 GitLab webhooks created (MR events + Note events)</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">GitLab webhook test shows green checkmark</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">Test MR created &rarr; draft comment appeared within 60s</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">!approve command &rarr; inline comments posted on diff lines</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">Supabase: pending_reviews row created with findings</span></li>
+                <li onclick="toggleCheck(this)"><div class="checkbox"></div><span class="label-text">Supabase: agent_runs table has entries for all 7 agents</span></li>
+            </ul>
+        </div>
+
+        <!-- Troubleshooting -->
+        <div class="section">
+            <h2>4.5 Troubleshooting</h2>
+
+            <div class="trouble-item" onclick="toggleTrouble(this)">
+                <div class="trouble-q">
+                    Webhook not triggering
+                    <span class="trouble-arrow">&#9662;</span>
+                </div>
+                <div class="trouble-a">
+                    <ul style="margin-left: 16px; margin-top: 8px;">
+                        <li>Check GitLab webhook &rarr; Recent deliveries for error codes</li>
+                        <li>Verify n8n is reachable from GitLab (same network / public URL)</li>
+                        <li>Ensure both workflows are <strong>Active</strong> in n8n</li>
+                        <li>Double-check webhook URL has no typos</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="trouble-item" onclick="toggleTrouble(this)">
+                <div class="trouble-q">
+                    Database connection error
+                    <span class="trouble-arrow">&#9662;</span>
+                </div>
+                <div class="trouble-a">
+                    <ul style="margin-left: 16px; margin-top: 8px;">
+                        <li>Set SSL to <strong>"Allow"</strong> in n8n Postgres credential</li>
+                        <li>Verify Supabase project is not paused (free tier pauses after inactivity)</li>
+                        <li>Check password is correct (no extra spaces)</li>
+                        <li>Ensure <code>pgcrypto</code> extension was enabled in migration</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="trouble-item" onclick="toggleTrouble(this)">
+                <div class="trouble-q">
+                    OpenRouter API returns 401 or 403
+                    <span class="trouble-arrow">&#9662;</span>
+                </div>
+                <div class="trouble-a">
+                    <ul style="margin-left: 16px; margin-top: 8px;">
+                        <li>Make sure the Header Auth value is <code>Bearer sk-or-v1-xxx</code> (with "Bearer " prefix and space)</li>
+                        <li>Check that you have credits on OpenRouter</li>
+                        <li>Try changing <code>OPENROUTER_MODEL</code> to a different model</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="trouble-item" onclick="toggleTrouble(this)">
+                <div class="trouble-q">
+                    Inline comments not appearing after !approve
+                    <span class="trouble-arrow">&#9662;</span>
+                </div>
+                <div class="trouble-a">
+                    <ul style="margin-left: 16px; margin-top: 8px;">
+                        <li>Ensure GitLab token has <strong><code>api</code></strong> scope (not just <code>read_api</code>)</li>
+                        <li>Check n8n execution logs for the approval workflow</li>
+                        <li>Verify SHA values are stored in <code>pending_reviews</code> (needed for positioning)</li>
+                        <li>Comments are posted in batches of 5 with 1s delay &mdash; wait a few seconds</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="trouble-item" onclick="toggleTrouble(this)">
+                <div class="trouble-q">
+                    No draft comment appears on MR
+                    <span class="trouble-arrow">&#9662;</span>
+                </div>
+                <div class="trouble-a">
+                    <ul style="margin-left: 16px; margin-top: 8px;">
+                        <li>Check n8n <strong>Executions</strong> page for the main workflow &mdash; look for errors</li>
+                        <li>Usually a credential is missing on one of the nodes</li>
+                        <li>Verify the MR event filter is not blocking your event (check the Filter node)</li>
+                        <li>Try opening/updating the MR again to re-trigger the webhook</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Done -->
+        <div class="info-box success">
+            <div class="title">Setup Complete!</div>
+            Your PR Agent is now live. Every new Merge Request will be automatically reviewed by 7 AI agents. The CTO (and authorized approvers) can manage reviews using slash commands in MR comments. The system learns from approvals and rejections over time.
+        </div>
+
+        <div class="nav-footer">
+            <a href="step-3-workflows.html" class="nav-btn">&larr; Workflows &amp; Webhooks</a>
+            <a href="index.html" class="nav-btn primary">Back to Overview</a>
+        </div>
+    </div>
+
+    <script>
+        function copyCode(btn, id) {
+            const el = document.getElementById(id);
+            navigator.clipboard.writeText(el.textContent).then(() => {
+                btn.classList.add('copied');
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg> Copied!';
+                setTimeout(() => {
+                    btn.classList.remove('copied');
+                    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> Copy';
+                }, 2000);
+            });
+        }
+
+        function copyCmd(card, text) {
+            navigator.clipboard.writeText(text).then(() => {
+                card.classList.add('copied-card');
+                setTimeout(() => card.classList.remove('copied-card'), 1500);
+            });
+        }
+
+        function toggleCheck(li) {
+            li.classList.toggle('checked');
+        }
+
+        function toggleTrouble(item) {
+            item.classList.toggle('open');
+        }
+    </script>
+</body>
+</html>

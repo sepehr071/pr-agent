@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PR Agent - Configuration Guide</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e4e4e7;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #a1a1aa;
+            font-size: 1.1rem;
+        }
+
+        .nav {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+            justify-content: center;
+        }
+
+        .nav-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #e4e4e7;
+            padding: 12px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+
+        .nav-btn:hover, .nav-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+            transform: translateY(-2px);
+        }
+
+        .section {
+            display: none;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card h2 .icon {
+            font-size: 1.5rem;
+        }
+
+        .diagram {
+            background: rgba(0,0,0,0.3);
+            border-radius: 16px;
+            padding: 30px;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            min-width: 800px;
+            flex-wrap: wrap;
+        }
+
+        .flow-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px 30px;
+            border-radius: 12px;
+            text-align: center;
+            font-weight: 600;
+            min-width: 150px;
+            position: relative;
+        }
+
+        .flow-box.gitlab { background: linear-gradient(135deg, #fc6d26 0%, #e24329 100%); }
+        .flow-box.n8n { background: linear-gradient(135deg, #ea4b71 0%, #ff6b6b 100%); }
+        .flow-box.supabase { background: linear-gradient(135deg, #3ecf8e 0%, #2fb77a 100%); }
+        .flow-box.openrouter { background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); }
+        .flow-box.ai { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+
+        .flow-arrow {
+            font-size: 2rem;
+            color: #667eea;
+        }
+
+        .parallel-box {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .agent-box {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            white-space: nowrap;
+        }
+
+        .step-list {
+            list-style: none;
+        }
+
+        .step-item {
+            display: flex;
+            gap: 15px;
+            padding: 15px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .step-item:last-child {
+            border-bottom: none;
+        }
+
+        .step-number {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-content h4 {
+            color: #e4e4e7;
+            margin-bottom: 8px;
+        }
+
+        .step-content p {
+            color: #a1a1aa;
+            font-size: 0.95rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        th {
+            background: rgba(102, 126, 234, 0.3);
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255,255,255,0.03);
+        }
+
+        .code-block {
+            background: rgba(0,0,0,0.4);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+
+        .code-block pre {
+            color: #a1a1aa;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.9rem;
+        }
+
+        .env-vars {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .env-var {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 3px solid #667eea;
+        }
+
+        .env-var .name {
+            color: #667eea;
+            font-weight: 600;
+            font-family: 'Fira Code', monospace;
+            margin-bottom: 5px;
+        }
+
+        .env-var .value {
+            color: #a1a1aa;
+            font-size: 0.9rem;
+        }
+
+        .env-var .desc {
+            color: #71717a;
+            font-size: 0.85rem;
+            margin-top: 5px;
+        }
+
+        .credential-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .credential-card {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .credential-card:hover {
+            border-color: #667eea;
+            transform: translateY(-5px);
+        }
+
+        .credential-card .icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .credential-card h3 {
+            color: #e4e4e7;
+            margin-bottom: 10px;
+        }
+
+        .credential-card .type {
+            color: #667eea;
+            font-size: 0.85rem;
+            margin-bottom: 15px;
+        }
+
+        .credential-card .fields {
+            margin-top: 15px;
+        }
+
+        .credential-card .field {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.9rem;
+        }
+
+        .credential-card .field:last-child {
+            border-bottom: none;
+        }
+
+        .credential-card .field-label {
+            color: #71717a;
+        }
+
+        .credential-card .field-value {
+            color: #a1a1aa;
+            text-align: right;
+        }
+
+        .checklist {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .checklist-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .checklist-item:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+
+        .checklist-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            accent-color: #667eea;
+        }
+
+        .checklist-item.checked {
+            opacity: 0.6;
+            text-decoration: line-through;
+        }
+
+        .troubleshoot-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .troubleshoot-item {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .troubleshoot-item .issue {
+            color: #f87171;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .troubleshoot-item .solution {
+            color: #a1a1aa;
+            font-size: 0.9rem;
+        }
+
+        .progress-bar {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            height: 8px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        .progress-text {
+            text-align: center;
+            color: #a1a1aa;
+            font-size: 0.9rem;
+            margin-top: -15px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 1.8rem; }
+            .flow-diagram { min-width: auto; flex-direction: column; }
+            .flow-arrow { transform: rotate(90deg); }
+            .parallel-box { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 PR Agent Configuration Guide</h1>
+            <p class="subtitle">Step-by-step setup for AI-powered GitLab code review</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p class="progress-text"><span id="progressText">0</span>% Complete</p>
+        </header>
+
+        <nav class="nav">
+            <button class="nav-btn active" data-section="overview">📋 Overview</button>
+            <button class="nav-btn" data-section="credentials">🔑 Credentials</button>
+            <button class="nav-btn" data-section="environment">⚙️ Environment</button>
+            <button class="nav-btn" data-section="workflow-main">📝 Main Workflow</button>
+            <button class="nav-btn" data-section="workflow-approval">✅ Approval Workflow</button>
+            <button class="nav-btn" data-section="database">💾 Database</button>
+            <button class="nav-btn" data-section="webhooks">🔗 Webhooks</button>
+            <button class="nav-btn" data-section="test">🧪 Test</button>
+        </nav>
+
+        <!-- Overview Section -->
+        <section class="section active" id="overview">
+            <div class="card">
+                <h2><span class="icon">🏗️</span> System Architecture</h2>
+                <p style="color: #a1a1aa; margin-bottom: 20px;">PR Agent uses 7 specialized AI agents to review GitLab Merge Requests, then requires CTO approval before posting inline comments.</p>
+
+                <div class="diagram">
+                    <div class="flow-diagram">
+                        <div class="flow-box gitlab">GitLab<br/>MR Event</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box n8n">n8n Cloud<br/>Main Workflow</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box openrouter">OpenRouter<br/>AI API</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="parallel-box">
+                            <div class="agent-box">🔒 Security</div>
+                            <div class="agent-box">⚡ Performance</div>
+                            <div class="agent-box">🎨 Style</div>
+                            <div class="agent-box">🏗️ Architecture</div>
+                            <div class="agent-box">🧪 Tests</div>
+                            <div class="agent-box">✨ Quality</div>
+                            <div class="agent-box">🔗 Context</div>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box supabase">Supabase<br/>Database</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box gitlab">GitLab<br/>Draft Comment</div>
+                    </div>
+                </div>
+
+                <div class="diagram">
+                    <div class="flow-diagram">
+                        <div class="flow-box gitlab">GitLab<br/>Comment</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box n8n">n8n Approval<br/>Workflow</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box supabase">Fetch Review<br/>from DB</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box gitlab">Post Inline<br/>Comments</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span class="icon">📊</span> Quick Stats</h2>
+                <div class="env-vars">
+                    <div class="env-var">
+                        <div class="name">4 Credentials</div>
+                        <div class="value">GitLab, OpenRouter, Supabase</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">9 Environment Variables</div>
+                        <div class="value">Configuration settings</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">2 Workflows</div>
+                        <div class="value">Main + Approval</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">36 Nodes</div>
+                        <div class="value">13 main + 23 approval</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">7 AI Agents</div>
+                        <div class="value">Parallel execution</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">2 Webhooks</div>
+                        <div class="value">MR events + Comments</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Credentials Section -->
+        <section class="section" id="credentials">
+            <div class="card">
+                <h2><span class="icon">🔑</span> Create Credentials in n8n</h2>
+                <p style="color: #a1a1aa; margin-bottom: 20px;">Navigate to <strong>Credentials</strong> in n8n sidebar and create these 4 credentials:</p>
+
+                <div class="credential-grid">
+                    <div class="credential-card">
+                        <div class="icon">🦊</div>
+                        <h3>GitLab Self-Hosted</h3>
+                        <div class="type">Credential Type: GitLab</div>
+                        <div class="fields">
+                            <div class="field"><span class="field-label">Base URL</span><span class="field-value">https://your-gitlab.com</span></div>
+                            <div class="field"><span class="field-label">Access Token</span><span class="field-value">Your GitLab PAT (api scope)</span></div>
+                        </div>
+                        <p style="color: #71717a; font-size: 0.85rem; margin-top: 15px;">Used by: GitLab MR Trigger, GitLab Note Trigger</p>
+                    </div>
+
+                    <div class="credential-card">
+                        <div class="icon">🔐</div>
+                        <h3>GitLab Private Token</h3>
+                        <div class="type">Credential Type: Header Auth</div>
+                        <div class="fields">
+                            <div class="field"><span class="field-label">Name</span><span class="field-value">PRIVATE-TOKEN</span></div>
+                            <div class="field"><span class="field-label">Value</span><span class="field-value">Your GitLab PAT</span></div>
+                        </div>
+                        <p style="color: #71717a; font-size: 0.85rem; margin-top: 15px;">Used by: All GitLab API calls</p>
+                    </div>
+
+                    <div class="credential-card">
+                        <div class="icon">🤖</div>
+                        <h3>OpenRouter API</h3>
+                        <div class="type">Credential Type: Header Auth</div>
+                        <div class="fields">
+                            <div class="field"><span class="field-label">Name</span><span class="field-value">Authorization</span></div>
+                            <div class="field"><span class="field-label">Value</span><span class="field-value">Bearer sk-or-v1-...</span></div>
+                        </div>
+                        <p style="color: #71717a; font-size: 0.85rem; margin-top: 15px;">Used by: All 7 AI Agents (include "Bearer " prefix!)</p>
+                    </div>
+
+                    <div class="credential-card">
+                        <div class="icon">🐘</div>
+                        <h3>PostgreSQL</h3>
+                        <div class="type">Credential Type: Postgres</div>
+                        <div class="fields">
+                            <div class="field"><span class="field-label">Host</span><span class="field-value">db.xxx.supabase.co</span></div>
+                            <div class="field"><span class="field-label">Database</span><span class="field-value">postgres</span></div>
+                            <div class="field"><span class="field-label">SSL</span><span class="field-value">Allow</span></div>
+                        </div>
+                        <p style="color: #71717a; font-size: 0.85rem; margin-top: 15px;">Used by: Database operations</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span class="icon">📝</span> Step-by-Step: Creating Credentials</h2>
+                <ul class="step-list">
+                    <li class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Get GitLab Personal Access Token</h4>
+                            <p>Go to GitLab → Profile → Preferences → Access Tokens → Create new token with <code>api</code> scope</p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Get OpenRouter API Key</h4>
+                            <p>Go to <a href="https://openrouter.ai" target="_blank" style="color: #667eea;">openrouter.ai</a> → Keys → Create Key (starts with <code>sk-or-</code>)</p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Create Supabase Project</h4>
+                            <p>Go to <a href="https://supabase.com" target="_blank" style="color: #667eea;">supabase.com</a> → New Project → Save database password!</p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h4>Create Credentials in n8n</h4>
+                            <p>In n8n, go to Credentials → Add Credential → Select type → Fill in details → Save</p>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Environment Section -->
+        <section class="section" id="environment">
+            <div class="card">
+                <h2><span class="icon">⚙️</span> Environment Variables</h2>
+                <p style="color: #a1a1aa; margin-bottom: 20px;">In n8n, go to <strong>Settings → Variables</strong> and add these:</p>
+
+                <div class="env-vars">
+                    <div class="env-var">
+                        <div class="name">GITLAB_URL</div>
+                        <div class="value">https://your-gitlab.com</div>
+                        <div class="desc">No trailing slash</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">GITLAB_NAMESPACE</div>
+                        <div class="value">your-group-or-username</div>
+                        <div class="desc">Group/user that owns the project</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">GITLAB_PROJECT</div>
+                        <div class="value">your-project-name</div>
+                        <div class="desc">Project name</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">OPENROUTER_MODEL</div>
+                        <div class="value">anthropic/claude-3.5-sonnet</div>
+                        <div class="desc">AI model to use</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">APP_URL</div>
+                        <div class="value">https://yourcompany.com</div>
+                        <div class="desc">Your company URL</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">AUTHORIZED_APPROVERS</div>
+                        <div class="value">cto,tech-lead,yourname</div>
+                        <div class="desc">Comma-separated GitLab usernames</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">MIN_SEVERITY</div>
+                        <div class="value">low</div>
+                        <div class="desc">critical/high/medium/low</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">REVIEW_MODE</div>
+                        <div class="value">thorough</div>
+                        <div class="desc">thorough/balanced/quick</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">MAX_FINDINGS_PER_AGENT</div>
+                        <div class="value">20</div>
+                        <div class="desc">Cap findings per agent</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Workflow Section -->
+        <section class="section" id="workflow-main">
+            <div class="card">
+                <h2><span class="icon">📝</span> workflow-main.json</h2>
+
+                <div class="diagram">
+                    <div class="flow-diagram" style="flex-direction: column; align-items: flex-start;">
+                        <div style="display: flex; align-items: center; gap: 20px; width: 100%;">
+                            <div class="flow-box gitlab" style="min-width: 150px;">GitLab MR Trigger</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box n8n" style="min-width: 150px;">Filter Events</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box n8n" style="min-width: 150px;">Fetch MR Diff</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box n8n" style="min-width: 150px;">Prepare Context</div>
+                        </div>
+                        <div class="flow-arrow" style="align-self: center; margin: 10px 0;">↓</div>
+                        <div class="parallel-box" style="justify-content: flex-start;">
+                            <div class="agent-box">🔒 Security</div>
+                            <div class="agent-box">⚡ Performance</div>
+                            <div class="agent-box">🎨 Style</div>
+                            <div class="agent-box">🏗️ Architecture</div>
+                            <div class="agent-box">🧪 Test Coverage</div>
+                            <div class="agent-box">✨ Code Quality</div>
+                            <div class="agent-box">🔗 Context Analyzer</div>
+                        </div>
+                        <div class="flow-arrow" style="align-self: center; margin: 10px 0;">↓</div>
+                        <div style="display: flex; align-items: center; gap: 20px;">
+                            <div class="flow-box n8n" style="min-width: 150px;">Aggregate Results</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box n8n" style="min-width: 150px;">Format Comment</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box gitlab" style="min-width: 150px;">Post Draft</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box supabase" style="min-width: 150px;">Store Review</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span class="icon">🔗</span> Connect Credentials to Nodes</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Node</th>
+                            <th>Credential</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>GitLab MR Trigger</td><td><code>GitLab Self-Hosted</code></td></tr>
+                        <tr><td>Fetch MR Diff</td><td><code>GitLab Private Token</code></td></tr>
+                        <tr><td>Security Review Agent</td><td><code>OpenRouter API</code></td></tr>
+                        <tr><td>Performance Review Agent</td><td><code>OpenRouter API</code></td></tr>
+                        <tr><td>Style Review Agent</td><td><code>OpenRouter API</code></td></tr>
+                        <tr><td>Architecture Review Agent</td><td><code>OpenRouter API</code></td></tr>
+                        <tr><td>Test Coverage Agent</td><td><code>OpenRouter API</code></td></tr>
+                        <tr><td>Code Quality Agent</td><td><code>OpenRouter API</code></td></tr>
+                        <tr><td>Context Analyzer Agent</td><td><code>OpenRouter API</code></td></tr>
+                        <tr><td>Post Draft Comment to GitLab</td><td><code>GitLab Private Token</code></td></tr>
+                        <tr><td>Store Pending Review</td><td><code>PostgreSQL</code></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Approval Workflow Section -->
+        <section class="section" id="workflow-approval">
+            <div class="card">
+                <h2><span class="icon">✅</span> workflow-approval.json</h2>
+
+                <div class="diagram">
+                    <div class="flow-diagram" style="flex-direction: column; align-items: flex-start;">
+                        <div style="display: flex; align-items: center; gap: 20px;">
+                            <div class="flow-box gitlab" style="min-width: 150px;">GitLab Note Trigger</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box n8n" style="min-width: 150px;">Parse Command</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box n8n" style="min-width: 150px;">Route Command</div>
+                        </div>
+                        <div class="flow-arrow" style="align-self: center; margin: 10px 0;">↓</div>
+                        <div class="parallel-box" style="justify-content: flex-start;">
+                            <div class="agent-box">!approve</div>
+                            <div class="agent-box">!approve-partial</div>
+                            <div class="agent-box">!reject</div>
+                            <div class="agent-box">!remove-finding</div>
+                            <div class="agent-box">!edit-finding</div>
+                            <div class="agent-box">!add-comment</div>
+                            <div class="agent-box">!list-findings</div>
+                        </div>
+                        <div class="flow-arrow" style="align-self: center; margin: 10px 0;">↓</div>
+                        <div style="display: flex; align-items: center; gap: 20px;">
+                            <div class="flow-box supabase" style="min-width: 150px;">Fetch Review</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box n8n" style="min-width: 150px;">Process</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box gitlab" style="min-width: 150px;">Post Comments</div>
+                            <div class="flow-arrow">→</div>
+                            <div class="flow-box supabase" style="min-width: 150px;">Update DB</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span class="icon">💬</span> CTO Commands Reference</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Command</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>!approve</code></td><td>Post all findings as inline comments</td></tr>
+                        <tr><td><code>!approve-partial 1,3,5-7</code></td><td>Post only selected findings</td></tr>
+                        <tr><td><code>!reject</code></td><td>Discard all findings</td></tr>
+                        <tr><td><code>!remove-finding 2,4</code></td><td>Remove findings from list</td></tr>
+                        <tr><td><code>!edit-finding 1 severity:low</code></td><td>Edit a finding's severity</td></tr>
+                        <tr><td><code>!add-comment file.js:42 "msg"</code></td><td>Add custom inline comment</td></tr>
+                        <tr><td><code>!list-findings</code></td><td>Re-display current findings</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Database Section -->
+        <section class="section" id="database">
+            <div class="card">
+                <h2><span class="icon">💾</span> Supabase Database Setup</h2>
+
+                <ul class="step-list">
+                    <li class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Create Supabase Project</h4>
+                            <p>Go to supabase.com → New Project → Name: <code>gitlab-reviews</code> → Save password!</p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Open SQL Editor</h4>
+                            <p>In Supabase dashboard, click <strong>SQL Editor</strong> (left sidebar) → <strong>New query</strong></p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Run this SQL</h4>
+                            <div class="code-block">
+                                <pre>CREATE TABLE pending_reviews (
+    id SERIAL PRIMARY KEY,
+    review_id VARCHAR(255) UNIQUE NOT NULL,
+    mr_iid INTEGER NOT NULL,
+    project_id INTEGER NOT NULL,
+    findings JSONB NOT NULL,
+    stats JSONB,
+    draft_note_id INTEGER,
+    base_sha VARCHAR(64),
+    head_sha VARCHAR(64),
+    start_sha VARCHAR(64),
+    status VARCHAR(50) DEFAULT 'pending_approval',
+    approved_by VARCHAR(255),
+    approved_at TIMESTAMP,
+    rejected_by VARCHAR(255),
+    rejected_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_pending_reviews_review_id
+    ON pending_reviews(review_id);
+CREATE INDEX idx_pending_reviews_status
+    ON pending_reviews(status);
+CREATE INDEX idx_pending_reviews_mr
+    ON pending_reviews(project_id, mr_iid);</pre>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h4>Run v3.0 Migration (Optional)</h4>
+                            <p>Open <code>database/migration-v3.sql</code> and run it for learning features + enhanced columns</p>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2><span class="icon">📊</span> Database Schema</h2>
+                <div class="env-vars">
+                    <div class="env-var">
+                        <div class="name">pending_reviews</div>
+                        <div class="value">Main review storage</div>
+                        <div class="desc">Stores AI findings, status, metadata</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">review_history</div>
+                        <div class="value">Learning system</div>
+                        <div class="desc">Tracks accepted/rejected findings</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">project_patterns</div>
+                        <div class="value">Project conventions</div>
+                        <div class="desc">Learned patterns per project</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">ignored_patterns</div>
+                        <div class="value">Auto-ignore rules</div>
+                        <div class="desc">CTO-configured ignores</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">agent_runs</div>
+                        <div class="value">Performance tracking</div>
+                        <div class="desc">Agent execution metrics</div>
+                    </div>
+                    <div class="env-var">
+                        <div class="name">cto_feedback</div>
+                        <div class="value">Explicit feedback</div>
+                        <div class="desc">For improvement</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Webhooks Section -->
+        <section class="section" id="webhooks">
+            <div class="card">
+                <h2><span class="icon">🔗</span> GitLab Webhook Configuration</h2>
+
+                <ul class="step-list">
+                    <li class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Get Webhook URLs from n8n</h4>
+                            <p>Open each workflow → Click trigger node → Copy <strong>Production URL</strong></p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Add Webhook 1 - MR Events</h4>
+                            <p>GitLab → Settings → Webhooks → Add new webhook</p>
+                            <table>
+                                <tr><td><strong>URL</strong></td><td>Main workflow webhook URL</td></tr>
+                                <tr><td><strong>Trigger</strong></td><td>✅ Merge request events</td></tr>
+                                <tr><td><strong>SSL</strong></td><td>✅ Enable</td></tr>
+                            </table>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Add Webhook 2 - Comment Events</h4>
+                            <p>Add another webhook with these settings:</p>
+                            <table>
+                                <tr><td><strong>URL</strong></td><td>Approval workflow webhook URL</td></tr>
+                                <tr><td><strong>Trigger</strong></td><td>✅ Comments</td></tr>
+                                <tr><td><strong>SSL</strong></td><td>✅ Enable</td></tr>
+                            </table>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2><span class="icon">🔄</span> Webhook Flow Diagram</h2>
+                <div class="diagram">
+                    <div class="flow-diagram">
+                        <div class="flow-box gitlab">GitLab MR Event</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box" style="background: #333;">n8n webhook URL</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box n8n">workflow-main.json</div>
+                    </div>
+                </div>
+                <div class="diagram">
+                    <div class="flow-diagram">
+                        <div class="flow-box gitlab">GitLab Comment</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box" style="background: #333;">n8n webhook URL</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box n8n">workflow-approval.json</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Test Section -->
+        <section class="section" id="test">
+            <div class="card">
+                <h2><span class="icon">🧪</span> Test the Setup</h2>
+
+                <ul class="step-list">
+                    <li class="step-item">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Activate Workflows</h4>
+                            <p>In n8n, open each workflow → Toggle <strong>Active</strong> → ON (green)</p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Create Test MR</h4>
+                            <p>In GitLab, create a new branch with code changes → Create Merge Request</p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Wait for Review</h4>
+                            <p>Wait 30-60 seconds → Refresh MR page → Look for draft comment</p>
+                        </div>
+                    </li>
+                    <li class="step-item">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h4>Test Commands</h4>
+                            <p>Reply to draft comment with <code>!approve</code> → Wait → Check inline comments</p>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2><span class="icon">✅</span> Setup Checklist</h2>
+                <div class="checklist">
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>4 credentials created in n8n</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>9 environment variables set</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>workflow-main.json imported</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>workflow-approval.json imported</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>All nodes connected to credentials</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>Supabase database table created</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>GitLab webhook 1 configured (MR events)</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>GitLab webhook 2 configured (Comments)</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>Both workflows activated</span>
+                    </label>
+                    <label class="checklist-item">
+                        <input type="checkbox" onchange="updateProgress()">
+                        <span>Test MR created and reviewed</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span class="icon">🔧</span> Troubleshooting</h2>
+                <div class="troubleshoot-grid">
+                    <div class="troubleshoot-item">
+                        <div class="issue">Webhook not triggering</div>
+                        <div class="solution">Check GitLab webhook shows green checkmark</div>
+                    </div>
+                    <div class="troubleshoot-item">
+                        <div class="issue">Database connection error</div>
+                        <div class="solution">Verify SSL is "Allow" in n8n credential</div>
+                    </div>
+                    <div class="troubleshoot-item">
+                        <div class="issue">OpenRouter API error</div>
+                        <div class="solution">Check "Bearer " prefix in API key</div>
+                    </div>
+                    <div class="troubleshoot-item">
+                        <div class="issue">Inline comments not appearing</div>
+                        <div class="solution">Check GitLab token has <code>api</code> scope</div>
+                    </div>
+                    <div class="troubleshoot-item">
+                        <div class="issue">Supabase paused</div>
+                        <div class="solution">Check Supabase project is not paused (free tier)</div>
+                    </div>
+                    <div class="troubleshoot-item">
+                        <div class="issue">Unauthorized error</div>
+                        <div class="solution">Add your username to AUTHORIZED_APPROVERS</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // Navigation
+        const navBtns = document.querySelectorAll('.nav-btn');
+        const sections = document.querySelectorAll('.section');
+
+        navBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const sectionId = btn.dataset.section;
+
+                // Update nav buttons
+                navBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                // Update sections
+                sections.forEach(s => s.classList.remove('active'));
+                document.getElementById(sectionId).classList.add('active');
+            });
+        });
+
+        // Progress tracking
+        function updateProgress() {
+            const checkboxes = document.querySelectorAll('.checklist-item input[type="checkbox"]');
+            const checked = document.querySelectorAll('.checklist-item input[type="checkbox"]:checked');
+            const progress = Math.round((checked.length / checkboxes.length) * 100);
+
+            document.getElementById('progressFill').style.width = progress + '%';
+            document.getElementById('progressText').textContent = progress;
+
+            // Update checkbox items styling
+            document.querySelectorAll('.checklist-item').forEach(item => {
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                if (checkbox.checked) {
+                    item.classList.add('checked');
+                } else {
+                    item.classList.remove('checked');
+                }
+            });
+        }
+    </script>
+</body>
+</html>

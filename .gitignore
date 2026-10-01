@@ -1,0 +1,21 @@
+# Config with actual credentials
+config/review-settings.json
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Local tooling
+*.local.json
+.claude/
+nul
+
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+*.log
+*.db
+*.sqlite
+test-results/
+playwright-report/

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 3: Import Workflows &amp; Webhooks - PR Agent</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117; --bg-card: #1a1d27; --bg-code: #141620;
+            --border: #2a2e3d; --text: #e1e4ed; --text-dim: #8b8fa3;
+            --accent: #6c5ce7; --accent-glow: rgba(108, 92, 231, 0.15);
+            --green: #00b894; --orange: #fdcb6e; --red: #e17055; --blue: #74b9ff;
+            --radius: 12px;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; min-height: 100vh; }
+        .container { max-width: 860px; margin: 0 auto; padding: 40px 24px; }
+        .progress { display: flex; align-items: center; gap: 0; margin-bottom: 40px; }
+        .progress-step { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-dim); text-decoration: none; }
+        .progress-step.active { color: var(--accent); font-weight: 600; }
+        .progress-step.done { color: var(--green); }
+        .progress-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }
+        .progress-step.active .progress-dot { border-color: var(--accent); background: var(--accent); color: #fff; }
+        .progress-step.done .progress-dot { border-color: var(--green); background: var(--green); color: #fff; }
+        .progress-line { flex: 1; height: 2px; background: var(--border); margin: 0 8px; }
+        .page-header { margin-bottom: 32px; }
+        .page-header .label { font-size: 0.85rem; color: var(--accent); font-weight: 600; margin-bottom: 8px; }
+        .page-header h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 8px; }
+        .page-header p { color: var(--text-dim); font-size: 0.95rem; }
+        .section { margin-bottom: 36px; }
+        .section h2 { font-size: 1.2rem; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+        .section h3 { font-size: 1rem; margin-bottom: 12px; color: var(--blue); }
+        .steps-list { list-style: none; counter-reset: step; }
+        .steps-list li { counter-increment: step; padding: 12px 0 12px 40px; position: relative; border-left: 2px solid var(--border); margin-left: 12px; }
+        .steps-list li::before { content: counter(step); position: absolute; left: -13px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: var(--accent); }
+        .steps-list li:last-child { border-left-color: transparent; }
+        .info-box { background: var(--bg-card); border-left: 3px solid var(--orange); border-radius: 0 var(--radius) var(--radius) 0; padding: 16px 20px; margin: 16px 0; font-size: 0.9rem; }
+        .info-box .title { font-weight: 600; color: var(--orange); margin-bottom: 4px; }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.85rem; }
+        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-dim); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        td code { background: var(--bg-code); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; }
+        .mapping-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+        @media (max-width: 600px) { .mapping-grid { grid-template-columns: 1fr; } }
+        .mapping-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+        .mapping-card h4 { font-size: 0.9rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .mapping-card .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .dot-green { background: var(--green); }
+        .dot-blue { background: var(--blue); }
+        .dot-purple { background: var(--accent); }
+        .mapping-card ul { list-style: none; font-size: 0.82rem; }
+        .mapping-card li { padding: 4px 0; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+        .mapping-card li::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+        .webhook-table { margin: 16px 0; }
+        .webhook-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin: 12px 0; }
+        .webhook-card h4 { font-size: 0.95rem; margin-bottom: 12px; }
+        .webhook-card .url-example { background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-family: monospace; font-size: 0.82rem; color: var(--text-dim); margin: 8px 0; }
+        .nav-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 32px; margin-top: 40px; border-top: 1px solid var(--border); }
+        .nav-btn { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); padding: 10px 20px; border-radius: var(--radius); border: 1px solid var(--border); font-size: 0.9rem; transition: all 0.2s; }
+        .nav-btn:hover { border-color: var(--accent); background: var(--accent-glow); }
+        .nav-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .nav-btn.primary:hover { background: #5a4bd4; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="progress">
+            <a class="progress-step done" href="step-1-database.html"><div class="progress-dot">&#10003;</div><span>Database</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step done" href="step-2-credentials.html"><div class="progress-dot">&#10003;</div><span>Credentials</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step active" href="step-3-workflows.html"><div class="progress-dot">3</div><span>Workflows</span></a>
+            <div class="progress-line"></div>
+            <a class="progress-step" href="step-4-launch.html"><div class="progress-dot">4</div><span>Launch</span></a>
+        </div>
+
+        <div class="page-header">
+            <div class="label">Step 3 of 4</div>
+            <h1>Import Workflows &amp; Webhooks</h1>
+            <p>Import the two workflow JSON files into n8n, connect credentials to each node, and wire up GitLab webhooks.</p>
+        </div>
+
+        <!-- Import -->
+        <div class="section">
+            <h2>3.1 Import Workflow Files</h2>
+            <ol class="steps-list">
+                <li>In n8n, click <strong>"Add workflow"</strong> (top right)</li>
+                <li>Click the <strong>&#8942;</strong> menu &rarr; <strong>"Import from File"</strong></li>
+                <li>Select <code>workflow-main.json</code> &rarr; <strong>Save</strong></li>
+                <li>Repeat: <strong>Add workflow</strong> &rarr; <strong>Import</strong> &rarr; <code>workflow-approval.json</code> &rarr; <strong>Save</strong></li>
+            </ol>
+        </div>
+
+        <!-- Connect Credentials -->
+        <div class="section">
+            <h2>3.2 Connect Credentials to Nodes</h2>
+            <p>Open each node and assign the matching credential from Step 2:</p>
+
+            <h3>workflow-main.json (Review Pipeline)</h3>
+            <div class="mapping-grid">
+                <div class="mapping-card">
+                    <h4><span class="dot dot-purple"></span> GitLab Self-Hosted</h4>
+                    <ul>
+                        <li>GitLab MR Trigger</li>
+                    </ul>
+                </div>
+                <div class="mapping-card">
+                    <h4><span class="dot dot-blue"></span> GitLab Private Token</h4>
+                    <ul>
+                        <li>Fetch MR Diff</li>
+                        <li>Post Draft Comment to GitLab</li>
+                    </ul>
+                </div>
+                <div class="mapping-card">
+                    <h4><span class="dot dot-green"></span> OpenRouter API</h4>
+                    <ul>
+                        <li>Security Review Agent</li>
+                        <li>Performance Review Agent</li>
+                        <li>Style Review Agent</li>
+                        <li>Architecture Review Agent</li>
+                        <li>Test Coverage Agent</li>
+                        <li>Code Quality Agent</li>
+                        <li>Context Analyzer Agent</li>
+                    </ul>
+                </div>
+                <div class="mapping-card">
+                    <h4><span class="dot dot-green"></span> PostgreSQL</h4>
+                    <ul>
+                        <li>Store Pending Review</li>
+                        <li>Record Agent Runs</li>
+                        <li>Fetch Project Patterns</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h3>workflow-approval.json (CTO Command Handler)</h3>
+            <div class="mapping-grid">
+                <div class="mapping-card">
+                    <h4><span class="dot dot-purple"></span> GitLab Self-Hosted</h4>
+                    <ul>
+                        <li>GitLab Note Trigger</li>
+                    </ul>
+                </div>
+                <div class="mapping-card">
+                    <h4><span class="dot dot-blue"></span> GitLab Private Token</h4>
+                    <ul>
+                        <li>All "Post *" nodes</li>
+                        <li>All "Create Discussion *" nodes</li>
+                        <li>All "Update MR *" nodes</li>
+                    </ul>
+                </div>
+                <div class="mapping-card">
+                    <h4><span class="dot dot-green"></span> PostgreSQL</h4>
+                    <ul>
+                        <li>All "Fetch Review *" nodes</li>
+                        <li>All "Update Review *" nodes</li>
+                        <li>All "Insert *" nodes</li>
+                    </ul>
+                </div>
+                <div class="mapping-card">
+                    <h4><span class="dot dot-green"></span> OpenRouter API</h4>
+                    <ul>
+                        <li>Explain Finding (AI call)</li>
+                        <li>Re-run Agent (AI call)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <div class="title">Tip</div>
+                The approval workflow has multiple paths (11 command types). Many paths have similar node names. Click through each path and make sure every node with a credential icon has one assigned.
+            </div>
+        </div>
+
+        <!-- Webhook URLs -->
+        <div class="section">
+            <h2>3.3 Get Webhook URLs from n8n</h2>
+            <ol class="steps-list">
+                <li>Open <strong>workflow-main</strong> &rarr; click the <strong>GitLab MR Trigger</strong> node &rarr; find <strong>"Webhook URLs"</strong> section &rarr; copy the <strong>Production URL</strong></li>
+                <li>Open <strong>workflow-approval</strong> &rarr; click the <strong>GitLab Note Trigger</strong> node &rarr; copy the <strong>Production URL</strong></li>
+            </ol>
+
+            <div class="webhook-card">
+                <h4>Example URLs</h4>
+                <div class="url-example">https://your-n8n.com/webhook/a1b2c3d4-main</div>
+                <div class="url-example">https://your-n8n.com/webhook/e5f6g7h8-approval</div>
+            </div>
+        </div>
+
+        <!-- GitLab Webhooks -->
+        <div class="section">
+            <h2>3.4 Configure GitLab Webhooks</h2>
+            <p>Go to your GitLab project &rarr; <strong>Settings &rarr; Webhooks</strong> and add two webhooks:</p>
+
+            <table>
+                <thead>
+                    <tr><th>#</th><th>URL (from 3.3)</th><th>Trigger</th><th>SSL</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>1</strong></td>
+                        <td>Main workflow webhook URL</td>
+                        <td><strong>Merge request events</strong></td>
+                        <td>Enable</td>
+                    </tr>
+                    <tr>
+                        <td><strong>2</strong></td>
+                        <td>Approval workflow webhook URL</td>
+                        <td><strong>Note (comment) events</strong></td>
+                        <td>Enable</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <ol class="steps-list">
+                <li>Click <strong>"Add new webhook"</strong></li>
+                <li>Paste the <strong>main workflow</strong> URL &rarr; check <strong>"Merge request events"</strong> &rarr; enable SSL &rarr; <strong>Add webhook</strong></li>
+                <li>Click <strong>"Add new webhook"</strong> again</li>
+                <li>Paste the <strong>approval workflow</strong> URL &rarr; check <strong>"Comments"</strong> &rarr; enable SSL &rarr; <strong>Add webhook</strong></li>
+                <li>Click <strong>"Test"</strong> on each webhook &mdash; you should see a green checkmark</li>
+            </ol>
+
+            <div class="info-box">
+                <div class="title">Self-hosted n8n?</div>
+                Make sure your n8n instance is reachable from your GitLab server. If they're on the same network, use the internal IP/hostname. If GitLab can't reach n8n, webhooks will silently fail.
+            </div>
+        </div>
+
+        <div class="nav-footer">
+            <a href="step-2-credentials.html" class="nav-btn">&larr; API Keys &amp; Config</a>
+            <a href="step-4-launch.html" class="nav-btn primary">Next: Launch &amp; Verify &rarr;</a>
+        </div>
+    </div>
+</body>
+</html>

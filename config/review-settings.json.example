@@ -1,0 +1,129 @@
+{
+  "_comment": "Enhanced PR Agent Configuration Template",
+  "_version": "3.0.0",
+  "_instructions": "Copy this file to review-settings.json and configure for your project",
+
+  "review_mode": "thorough",
+  "_review_mode_options": ["thorough", "balanced", "quick"],
+
+  "min_severity": "low",
+  "_min_severity_options": ["critical", "high", "medium", "low"],
+  "_min_severity_description": "Minimum severity level to include in review findings",
+
+  "max_findings_per_agent": 20,
+  "_max_findings_description": "Cap findings per agent to reduce noise (default: 20)",
+
+  "enable_context_analysis": true,
+  "_enable_context_analysis_description": "Enable the 7th Context Analyzer agent",
+
+  "confidence_threshold": 0.6,
+  "_confidence_threshold_description": "Only report findings above this confidence score (0.0-1.0)",
+
+  "enable_secondary_review": false,
+  "_enable_secondary_review_description": "Re-run critical findings with a higher quality model",
+
+  "secondary_review_model": "anthropic/claude-3-opus",
+  "_secondary_review_description": "Model to use for secondary verification of critical findings",
+
+  "group_by_category": true,
+  "_group_by_category_description": "Group findings by category in the output",
+
+  "include_code_examples": true,
+  "_include_code_examples_description": "Include code examples in suggestions",
+
+  "enable_learning": false,
+  "_enable_learning_description": "Enable learning from CTO approvals/rejections",
+
+  "learning_decay_days": 180,
+  "_learning_decay_description": "How long to weight historical patterns (days)",
+
+  "auto_ignore_repeated_false_positives": false,
+  "_auto_ignore_description": "Automatically ignore patterns that CTO frequently rejects",
+
+  "notify_on_critical": true,
+  "_notify_description": "Send notifications for critical findings",
+
+  "critical_notification_channels": ["email"],
+  "_notification_channel_options": ["slack", "email", "webhook"],
+
+  "agent_settings": {
+    "security": {
+      "enabled": true,
+      "timeout_ms": 180000,
+      "max_tokens": 8192
+    },
+    "performance": {
+      "enabled": true,
+      "timeout_ms": 180000,
+      "max_tokens": 8192
+    },
+    "style": {
+      "enabled": true,
+      "timeout_ms": 120000,
+      "max_tokens": 6144
+    },
+    "architecture": {
+      "enabled": true,
+      "timeout_ms": 180000,
+      "max_tokens": 8192
+    },
+    "test-coverage": {
+      "enabled": true,
+      "timeout_ms": 180000,
+      "max_tokens": 8192
+    },
+    "code-quality": {
+      "enabled": true,
+      "timeout_ms": 180000,
+      "max_tokens": 8192
+    },
+    "context": {
+      "enabled": true,
+      "timeout_ms": 180000,
+      "max_tokens": 8192
+    }
+  },
+
+  "severity_weights": {
+    "critical": 25,
+    "high": 10,
+    "medium": 3,
+    "low": 1
+  },
+  "_severity_weights_description": "Weights used to calculate risk score",
+
+  "ignore_patterns": [],
+  "_ignore_patterns_example": [
+    {
+      "type": "todo-comment",
+      "regex": "TODO|FIXME",
+      "reason": "We track TODOs separately"
+    },
+    {
+      "type": "console-log",
+      "regex": "console\\.log",
+      "reason": "Allowed in development"
+    }
+  ],
+
+  "custom_prompts": {
+    "_description": "Override default system prompts for agents",
+    "security": null,
+    "performance": null,
+    "style": null,
+    "architecture": null,
+    "test-coverage": null,
+    "code-quality": null,
+    "context": null
+  },
+
+  "output_settings": {
+    "include_cwe_links": true,
+    "include_risk_score": true,
+    "include_confidence_score": true,
+    "include_executive_summary": true,
+    "include_metrics": true,
+    "max_line_context": 5,
+    "formatting": "markdown"
+  }
+}

@@ -1,0 +1,1054 @@
+{
+  "name": "GitLab MR Review - CTO Approval Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "events": ["note"],
+        "owner": "your-gitlab-username",
+        "repository": "financial-laws-scrapper"
+      },
+      "id": "gitlab-note-trigger",
+      "name": "GitLab Note Trigger",
+      "type": "n8n-nodes-base.gitlabTrigger",
+      "typeVersion": 1,
+      "position": [250, 500],
+      "credentials": {
+        "gitLabApi": {
+          "id": "{{GITLAB_CREDENTIAL_ID}}",
+          "name": "GitLab Self-Hosted"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "b1c2d3e4-0001-4000-8000-000000000001", "name": "GITLAB_URL", "value": "https://gitlab.example.com", "type": "string" },
+            { "id": "b1c2d3e4-0001-4000-8000-000000000002", "name": "OPENROUTER_MODEL", "value": "moonshotai/kimi-k2.5", "type": "string" },
+            { "id": "b1c2d3e4-0001-4000-8000-000000000003", "name": "APP_URL", "value": "https://review.example.com", "type": "string" },
+            { "id": "b1c2d3e4-0001-4000-8000-000000000004", "name": "AUTHORIZED_APPROVERS", "value": "your-gitlab-username", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [350, 500]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Enhanced Command Parser - Supports all CTO commands\ntry {\n  const noteData = $input.first().json.body || $input.first().json;\n  const noteBody = (noteData.object_attributes?.note || '').trim();\n  const noteLower = noteBody.toLowerCase();\n  const authorUsername = noteData.user?.username || '';\n  const mrIid = noteData.merge_request?.iid;\n  const projectId = noteData.project_id;\n\n  // Get authorized approvers from environment\n  const authorizedApprovers = ($('Config').first().json.AUTHORIZED_APPROVERS || 'cto,tech-lead').split(',').map(s => s.trim().toLowerCase());\n\n  // Parse result\n  let result = {\n    action: 'ignore',\n    reason: 'not_a_command',\n    review_id: null,\n    mr_iid: mrIid,\n    project_id: projectId,\n    author: authorUsername,\n    note_id: noteData.object_attributes?.id,\n    gitlab_url: $('Config').first().json.GITLAB_URL,\n    // Command-specific data\n    selected_findings: [],\n    custom_comment: null,\n    edit_data: null,\n    remove_ids: []\n  };\n\n  // Extract review_id from note (format: review-xxx-xxx-xxx)\n  const reviewIdMatch = noteBody.match(/review-[\\w-]+/);\n  if (reviewIdMatch) {\n    result.review_id = reviewIdMatch[0];\n  }\n\n  // Parse range notation (e.g., \"1,3,5-7\" -> [1,3,5,6,7])\n  function parseIdRange(str) {\n    const ids = [];\n    const parts = str.split(',').map(s => s.trim());\n    for (const part of parts) {\n      if (part.includes('-')) {\n        const [start, end] = part.split('-').map(n => parseInt(n.trim()));\n        if (!isNaN(start) && !isNaN(end)) {\n          for (let i = start; i <= end; i++) ids.push(i);\n        }\n      } else {\n        const num = parseInt(part);\n        if (!isNaN(num)) ids.push(num);\n      }\n    }\n    return [...new Set(ids)].sort((a, b) => a - b);\n  }\n\n  // Detect command type\n  if (noteLower.startsWith('!approve-partial')) {\n    // /approve-partial 1,3,5-7\n    const match = noteBody.match(/!approve-partial\\s+([\\d,\\-\\s]+)/);\n    if (match) {\n      result.action = 'approve_partial';\n      result.selected_findings = parseIdRange(match[1]);\n    } else {\n      result.action = 'error';\n      result.reason = 'Invalid format. Use: !approve-partial 1,3,5-7';\n    }\n  } else if (noteLower.startsWith('!approve')) {\n    result.action = 'approve_all';\n  } else if (noteLower.startsWith('!reject')) {\n    result.action = 'reject';\n  } else if (noteLower.startsWith('!remove-finding')) {\n    // /remove-finding 2,4,6\n    const match = noteBody.match(/!remove-finding\\s+([\\d,\\-\\s]+)/);\n    if (match) {\n      result.action = 'remove_finding';\n      result.remove_ids = parseIdRange(match[1]);\n    } else {\n      result.action = 'error';\n      result.reason = 'Invalid format. Use: !remove-finding 1,2,3';\n    }\n  } else if (noteLower.startsWith('!edit-finding')) {\n    // /edit-finding 3 severity:low title:\"New title\"\n    const match = noteBody.match(/!edit-finding\\s+(\\d+)\\s+(.+)/);\n    if (match) {\n      const findingId = parseInt(match[1]);\n      const changesStr = match[2];\n      const changes = {};\n      \n      // Parse key:value pairs\n      const severityMatch = changesStr.match(/severity:(critical|high|medium|low)/i);\n      if (severityMatch) changes.severity = severityMatch[1].toLowerCase();\n      \n      const titleMatch = changesStr.match(/title:\"([^\"]+)\"/);\n      if (titleMatch) changes.title = titleMatch[1];\n      \n      const descMatch = changesStr.match(/description:\"([^\"]+)\"/);\n      if (descMatch) changes.description = descMatch[1];\n      \n      result.action = 'edit_finding';\n      result.edit_data = { id: findingId, changes: changes };\n    } else {\n      result.action = 'error';\n      result.reason = 'Invalid format. Use: !edit-finding 1 severity:low';\n    }\n  } else if (noteLower.startsWith('!add-comment')) {\n    // /add-comment src/file.js:42 \"Your comment here\"\n    const match = noteBody.match(/!add-comment\\s+(\\S+):(\\d+)\\s+\"([^\"]+)\"/);\n    if (match) {\n      result.action = 'add_comment';\n      result.custom_comment = {\n        file_path: match[1],\n        line: parseInt(match[2]),\n        message: match[3]\n      };\n    } else {\n      result.action = 'error';\n      result.reason = 'Invalid format. Use: !add-comment file.js:42 \"Your comment\"';\n    }\n  } else if (noteLower.startsWith('!list-findings')) {\n    result.action = 'list_findings';\n  } else if (noteLower.startsWith('!explain')) {\n    const match = noteBody.match(/!explain\\s+(\\d+)/);\n    if (match) {\n      result.action = 'explain';\n      result.explain_finding_id = parseInt(match[1]);\n    } else {\n      result.action = 'error';\n      result.reason = 'Invalid format. Use: !explain <finding-id>';\n    }\n  } else if (noteLower.startsWith('!rerun-agent')) {\n    const match = noteBody.match(/!rerun-agent\\s+(security|performance|style|architecture|test-coverage|code-quality|context)/i);\n    if (match) {\n      result.action = 'rerun_agent';\n      result.rerun_agent_name = match[1].toLowerCase();\n    } else {\n      result.action = 'error';\n      result.reason = 'Valid agents: security, performance, style, architecture, test-coverage, code-quality, context';\n    }\n  } else {\n    // Not a command we recognize\n    result.action = 'ignore';\n    result.reason = 'not_a_command';\n  }\n\n  // Check authorization for non-ignore actions\n  if (result.action !== 'ignore' && result.action !== 'error') {\n    if (!authorizedApprovers.includes(authorUsername.toLowerCase())) {\n      result.action = 'unauthorized';\n      result.reason = `User @${authorUsername} is not authorized. Authorized: ${authorizedApprovers.join(', ')}`;\n    }\n  }\n\n  return [{ json: result }];\n} catch (error) {\n  return [{ json: { action: 'error', reason: `Parse error: ${error.message}`, error: true } }];\n}"
+      },
+      "id": "parse-command",
+      "name": "Parse Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "approve_all", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "approve_all"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "approve_partial", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "approve_partial"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "reject", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reject"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "remove_finding", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "remove_finding"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "edit_finding", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "edit_finding"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "add_comment", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "add_comment"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "list_findings", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "list_findings"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "explain", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "explain"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "rerun_agent", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "rerun_agent"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "error", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "error"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "leftValue": "={{ $json.action }}", "rightValue": "unauthorized", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "unauthorized"
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "none" }
+      },
+      "id": "route-command",
+      "name": "Route Command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [700, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-approve",
+      "name": "Fetch Review (Approve All)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 100],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-partial",
+      "name": "Fetch Review (Partial)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 250],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-reject",
+      "name": "Fetch Review (Reject)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 400],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-remove",
+      "name": "Fetch Review (Remove)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 550],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-edit",
+      "name": "Fetch Review (Edit)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 700],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-add",
+      "name": "Fetch Review (Add Comment)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 850],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-list",
+      "name": "Fetch Review (List)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 1000],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Prepare ALL inline comments for posting\ntry {\n  const cmdData = $('Parse Command').first().json;\n  const reviewData = $input.first().json;\n\n  if (!reviewData || !reviewData.findings) {\n    return [{ json: { error: 'Review not found', review_id: cmdData.review_id } }];\n  }\n\n  const findings = JSON.parse(reviewData.findings);\n  const customComments = reviewData.custom_comments ? JSON.parse(reviewData.custom_comments) : [];\n\n  const allComments = prepareComments(findings, customComments, reviewData, cmdData);\n\n  return allComments.map(c => ({ json: c }));\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stage: 'prepare_all_comments' } }];\n}\n\nfunction prepareComments(findings, customComments, reviewData, cmdData) {\n  const comments = [];\n  const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' };\n  const catEmoji = { 'security': '🔒', 'performance': '⚡', 'architecture': '🏗️', 'code-quality': '✨', 'test-coverage': '🧪', 'style': '🎨' };\n\n  // Add AI findings\n  for (const f of findings) {\n    comments.push({\n      project_id: reviewData.project_id,\n      mr_iid: reviewData.mr_iid,\n      body: `${sevEmoji[f.severity] || '⚪'} ${catEmoji[f.category] || '📋'} **[${f.id}] ${f.title}**\\n\\n**Severity:** ${f.severity}\\n**Category:** ${f.category}\\n\\n${f.description}\\n\\n**Suggestion:** ${f.suggestion || 'N/A'}\\n\\n---\\n_AI Code Review_`,\n      file_path: f.file_path,\n      line: f.line,\n      position: {\n        base_sha: reviewData.base_sha,\n        start_sha: reviewData.start_sha,\n        head_sha: reviewData.head_sha,\n        position_type: 'text',\n        new_path: f.file_path,\n        new_line: f.line\n      }\n    });\n  }\n\n  // Add custom CTO comments\n  for (const c of customComments) {\n    comments.push({\n      project_id: reviewData.project_id,\n      mr_iid: reviewData.mr_iid,\n      body: `💬 **CTO Comment**\\n\\n${c.message}\\n\\n---\\n_Added by @${cmdData.author}_`,\n      file_path: c.file_path,\n      line: c.line,\n      position: {\n        base_sha: reviewData.base_sha,\n        start_sha: reviewData.start_sha,\n        head_sha: reviewData.head_sha,\n        position_type: 'text',\n        new_path: c.file_path,\n        new_line: c.line\n      }\n    });\n  }\n\n  return comments;\n}"
+      },
+      "id": "prepare-all-comments",
+      "name": "Prepare All Comments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 100]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Prepare PARTIAL inline comments (only selected IDs)\ntry {\n  const cmdData = $('Parse Command').first().json;\n  const reviewData = $input.first().json;\n\n  if (!reviewData || !reviewData.findings) {\n    return [{ json: { error: 'Review not found', review_id: cmdData.review_id } }];\n  }\n\n  const allFindings = JSON.parse(reviewData.findings);\n  const selectedIds = cmdData.selected_findings;\n  const customComments = reviewData.custom_comments ? JSON.parse(reviewData.custom_comments) : [];\n\n  // Filter to only selected findings\n  const selectedFindings = allFindings.filter(f => selectedIds.includes(f.id));\n\n  const allComments = prepareComments(selectedFindings, customComments, reviewData, cmdData);\n\n  return allComments.map(c => ({ json: c }));\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stage: 'prepare_partial_comments' } }];\n}\n\nfunction prepareComments(findings, customComments, reviewData, cmdData) {\n  const comments = [];\n  const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' };\n  const catEmoji = { 'security': '🔒', 'performance': '⚡', 'architecture': '🏗️', 'code-quality': '✨', 'test-coverage': '🧪', 'style': '🎨' };\n\n  for (const f of findings) {\n    comments.push({\n      project_id: reviewData.project_id,\n      mr_iid: reviewData.mr_iid,\n      body: `${sevEmoji[f.severity] || '⚪'} ${catEmoji[f.category] || '📋'} **[${f.id}] ${f.title}**\\n\\n**Severity:** ${f.severity}\\n**Category:** ${f.category}\\n\\n${f.description}\\n\\n**Suggestion:** ${f.suggestion || 'N/A'}\\n\\n---\\n_AI Code Review_`,\n      file_path: f.file_path,\n      line: f.line,\n      position: {\n        base_sha: reviewData.base_sha,\n        start_sha: reviewData.start_sha,\n        head_sha: reviewData.head_sha,\n        position_type: 'text',\n        new_path: f.file_path,\n        new_line: f.line\n      }\n    });\n  }\n\n  for (const c of customComments) {\n    comments.push({\n      project_id: reviewData.project_id,\n      mr_iid: reviewData.mr_iid,\n      body: `💬 **CTO Comment**\\n\\n${c.message}\\n\\n---\\n_Added by @${cmdData.author}_`,\n      file_path: c.file_path,\n      line: c.line,\n      position: {\n        base_sha: reviewData.base_sha,\n        start_sha: reviewData.start_sha,\n        head_sha: reviewData.head_sha,\n        position_type: 'text',\n        new_path: c.file_path,\n        new_line: c.line\n      }\n    });\n  }\n\n  return comments;\n}"
+      },
+      "id": "prepare-partial-comments",
+      "name": "Prepare Partial Comments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 250]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Remove specified findings from the list and update DB\ntry {\n  const cmdData = $('Parse Command').first().json;\n  const reviewData = $input.first().json;\n\n  if (!reviewData || !reviewData.findings) {\n    return [{ json: { error: 'Review not found', review_id: cmdData.review_id, action: 'error' } }];\n  }\n\n  const allFindings = JSON.parse(reviewData.findings);\n  const removeIds = cmdData.remove_ids;\n\n  // Remove specified findings\n  const remainingFindings = allFindings.filter(f => !removeIds.includes(f.id));\n\n  // Re-number remaining findings\n  const renumberedFindings = remainingFindings.map((f, idx) => ({ ...f, id: idx + 1 }));\n\n  // Generate updated summary comment\n  const summary = generateSummary(renumberedFindings, removeIds);\n\n  return [{\n    json: {\n      review_id: cmdData.review_id,\n      updated_findings: JSON.stringify(renumberedFindings),\n      removed_count: removeIds.length,\n      remaining_count: renumberedFindings.length,\n      summary_comment: summary,\n      project_id: reviewData.project_id,\n      mr_iid: reviewData.mr_iid\n    }\n  }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stage: 'process_remove' } }];\n}\n\nfunction generateSummary(findings, removedIds) {\n  const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' };\n  let msg = `✅ **Removed findings:** ${removedIds.join(', ')}\\n\\n`;\n  msg += `**Remaining findings (${findings.length}):**\\n\\n`;\n  msg += `| # | Severity | File | Issue |\\n|---|----------|------|-------|\\n`;\n  for (const f of findings) {\n    msg += `| ${f.id} | ${sevEmoji[f.severity]} ${f.severity} | \\`${f.file_path}:${f.line}\\` | ${f.title} |\\n`;\n  }\n  return msg;\n}"
+      },
+      "id": "process-remove",
+      "name": "Process Remove Finding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 550]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Edit specified finding and update DB\ntry {\n  const cmdData = $('Parse Command').first().json;\n  const reviewData = $input.first().json;\n\n  if (!reviewData || !reviewData.findings) {\n    return [{ json: { error: 'Review not found', review_id: cmdData.review_id, action: 'error' } }];\n  }\n\n  const allFindings = JSON.parse(reviewData.findings);\n  const editData = cmdData.edit_data;\n\n  // Find and update the specified finding\n  const updatedFindings = allFindings.map(f => {\n    if (f.id === editData.id) {\n      return { ...f, ...editData.changes };\n    }\n    return f;\n  });\n\n  // Generate confirmation message\n  const editedFinding = updatedFindings.find(f => f.id === editData.id);\n  let summary = `✅ **Updated finding #${editData.id}**\\n\\n`;\n  if (editedFinding) {\n    summary += `| Field | New Value |\\n|-------|-----------|\\n`;\n    for (const [key, val] of Object.entries(editData.changes)) {\n      summary += `| ${key} | ${val} |\\n`;\n    }\n    summary += `\\n**Current state:** ${editedFinding.severity} - ${editedFinding.title}`;\n  }\n\n  return [{\n    json: {\n      review_id: cmdData.review_id,\n      updated_findings: JSON.stringify(updatedFindings),\n      summary_comment: summary,\n      project_id: reviewData.project_id,\n      mr_iid: reviewData.mr_iid\n    }\n  }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stage: 'process_edit' } }];\n}"
+      },
+      "id": "process-edit",
+      "name": "Process Edit Finding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 700]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Add custom CTO comment to the list\ntry {\n  const cmdData = $('Parse Command').first().json;\n  const reviewData = $input.first().json;\n\n  if (!reviewData) {\n    return [{ json: { error: 'Review not found', review_id: cmdData.review_id, action: 'error' } }];\n  }\n\n  const customComments = reviewData.custom_comments ? JSON.parse(reviewData.custom_comments) : [];\n  const newComment = cmdData.custom_comment;\n\n  // Add the new comment\n  customComments.push({\n    file_path: newComment.file_path,\n    line: newComment.line,\n    message: newComment.message,\n    added_by: cmdData.author,\n    added_at: new Date().toISOString()\n  });\n\n  const summary = `✅ **Added custom comment**\\n\\n📁 \\`${newComment.file_path}:${newComment.line}\\`\\n💬 \"${newComment.message}\"\\n\\n_Total custom comments: ${customComments.length}_`;\n\n  return [{\n    json: {\n      review_id: cmdData.review_id,\n      updated_custom_comments: JSON.stringify(customComments),\n      summary_comment: summary,\n      project_id: reviewData.project_id,\n      mr_iid: reviewData.mr_iid\n    }\n  }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stage: 'process_add_comment' } }];\n}"
+      },
+      "id": "process-add-comment",
+      "name": "Process Add Comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 850]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Generate full findings list for display\ntry {\n  const cmdData = $('Parse Command').first().json;\n  const reviewData = $input.first().json;\n\n  if (!reviewData || !reviewData.findings) {\n    return [{ json: { error: 'Review not found', review_id: cmdData.review_id, action: 'error' } }];\n  }\n\n  const findings = JSON.parse(reviewData.findings);\n  const customComments = reviewData.custom_comments ? JSON.parse(reviewData.custom_comments) : [];\n  const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' };\n  const catEmoji = { 'security': '🔒', 'performance': '⚡', 'architecture': '🏗️', 'code-quality': '✨', 'test-coverage': '🧪', 'style': '🎨' };\n\n  let msg = `## 📋 Current Findings (${findings.length})\\n\\n`;\n  msg += `| # | Severity | Category | File | Line | Issue |\\n`;\n  msg += `|---|----------|----------|------|------|-------|\\n`;\n\n  for (const f of findings) {\n    msg += `| **${f.id}** | ${sevEmoji[f.severity]} ${f.severity} | ${catEmoji[f.category]} ${f.category} | \\`${f.file_path}\\` | ${f.line} | ${f.title} |\\n`;\n  }\n\n  if (customComments.length > 0) {\n    msg += `\\n### 💬 Custom Comments (${customComments.length})\\n\\n`;\n    for (let i = 0; i < customComments.length; i++) {\n      const c = customComments[i];\n      msg += `${i + 1}. \\`${c.file_path}:${c.line}\\` - \"${c.message}\" (by @${c.added_by})\\n`;\n    }\n  }\n\n  msg += `\\n---\\n*Review ID: \\`${cmdData.review_id}\\`*`;\n\n  return [{\n    json: {\n      summary_comment: msg,\n      project_id: reviewData.project_id,\n      mr_iid: reviewData.mr_iid\n    }\n  }];\n} catch (error) {\n  return [{ json: { error: true, message: error.message, stage: 'process_list' } }];\n}"
+      },
+      "id": "process-list",
+      "name": "Process List Findings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 1000]
+    },
+    {
+      "parameters": { "batchSize": 5, "options": { "delayBetweenBatches": 1000 } },
+      "id": "batch-all",
+      "name": "Batch All Comments",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1450, 100]
+    },
+    {
+      "parameters": { "batchSize": 5, "options": { "delayBetweenBatches": 1000 } },
+      "id": "batch-partial",
+      "name": "Batch Partial Comments",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1450, 250]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/discussions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.body, position: $json.position } }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "post-comment-all",
+      "name": "Post Comment (All)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 100],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/discussions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.body, position: $json.position } }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "post-comment-partial",
+      "name": "Post Comment (Partial)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 250],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $('Parse Command').first().json.project_id }}/merge_requests/{{ $('Parse Command').first().json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## ✅ AI Code Review Approved\\n\\nAll findings have been posted as inline comments.\\n\\nApproved by: @{{ $('Parse Command').first().json.author }}\\n\\n---\\n_Review ID: `{{ $('Parse Command').first().json.review_id }}`_\"\n}",
+        "options": {}
+      },
+      "id": "confirm-approve-all",
+      "name": "Confirm Approve All",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1950, 50],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $('Parse Command').first().json.project_id }}/merge_requests/{{ $('Parse Command').first().json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## ✅ AI Code Review Partially Approved\\n\\nSelected findings (#{{ $('Parse Command').first().json.selected_findings.join(', #') }}) have been posted as inline comments.\\n\\nApproved by: @{{ $('Parse Command').first().json.author }}\\n\\n---\\n_Review ID: `{{ $('Parse Command').first().json.review_id }}`_\"\n}",
+        "options": {}
+      },
+      "id": "confirm-approve-partial",
+      "name": "Confirm Partial Approve",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1950, 200],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## ❌ AI Code Review Rejected\\n\\nReview has been rejected by @{{ $('Parse Command').first().json.author }}.\\n\\nNo inline comments will be posted.\\n\\n---\\n_Review ID: `{{ $('Parse Command').first().json.review_id }}`_\"\n}",
+        "options": {}
+      },
+      "id": "post-reject",
+      "name": "Post Rejection",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 400],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.summary_comment } }}",
+        "options": {}
+      },
+      "id": "post-remove-confirm",
+      "name": "Post Remove Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 550],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.summary_comment } }}",
+        "options": {}
+      },
+      "id": "post-edit-confirm",
+      "name": "Post Edit Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 700],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.summary_comment } }}",
+        "options": {}
+      },
+      "id": "post-add-confirm",
+      "name": "Post Add Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 850],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.summary_comment } }}",
+        "options": {}
+      },
+      "id": "post-list",
+      "name": "Post Findings List",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 1000],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE pending_reviews SET status = 'approved', approved_by = '{{ $('Parse Command').first().json.author }}', approved_at = NOW() WHERE review_id = '{{ $('Parse Command').first().json.review_id }}'",
+        "options": {}
+      },
+      "id": "update-approved-all",
+      "name": "Update Status: Approved All",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2200, 100],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE pending_reviews SET status = 'approved', approved_by = '{{ $('Parse Command').first().json.author }}', approved_at = NOW() WHERE review_id = '{{ $('Parse Command').first().json.review_id }}'",
+        "options": {}
+      },
+      "id": "update-approved-partial",
+      "name": "Update Status: Approved Partial",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2200, 250],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE pending_reviews SET status = 'rejected', rejected_by = '{{ $('Parse Command').first().json.author }}', rejected_at = NOW() WHERE review_id = '{{ $('Parse Command').first().json.review_id }}'",
+        "options": {}
+      },
+      "id": "update-rejected",
+      "name": "Update Status: Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1450, 400],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE pending_reviews SET findings = '{{ JSON.stringify($json.updated_findings).replace(/'/g, \"''\") }}'::jsonb WHERE review_id = '{{ $json.review_id }}'",
+        "options": {}
+      },
+      "id": "update-findings-remove",
+      "name": "Update Findings (Remove)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1700, 550],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE pending_reviews SET findings = '{{ JSON.stringify($json.updated_findings).replace(/'/g, \"''\") }}'::jsonb WHERE review_id = '{{ $json.review_id }}'",
+        "options": {}
+      },
+      "id": "update-findings-edit",
+      "name": "Update Findings (Edit)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1700, 700],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE pending_reviews SET custom_comments = '{{ JSON.stringify($json.updated_custom_comments).replace(/'/g, \"''\") }}'::jsonb WHERE review_id = '{{ $json.review_id }}'",
+        "options": {}
+      },
+      "id": "update-custom-comments",
+      "name": "Update Custom Comments",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1700, 850],
+      "credentials": { "postgres": { "id": "{{POSTGRES_CREDENTIAL_ID}}", "name": "PostgreSQL" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"⚠️ **Error:** {{ $json.reason }}\\n\\nPlease check your command format and try again.\"\n}",
+        "options": {}
+      },
+      "id": "post-error",
+      "name": "Post Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [950, 1550],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.GITLAB_URL }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"🚫 **Unauthorized:** {{ $json.reason }}\"\n}",
+        "options": {}
+      },
+      "id": "post-unauthorized",
+      "name": "Post Unauthorized",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [950, 1700],
+      "credentials": { "httpHeaderAuth": { "id": "{{GITLAB_HEADER_AUTH_ID}}", "name": "GitLab Private Token" } },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-explain",
+      "name": "Fetch Review (Explain)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 1150],
+      "credentials": {
+        "postgres": {
+          "id": "{{POSTGRES_CREDENTIAL_ID}}",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Generate detailed explanation for a finding\ntry {\n  const cmdData = $('Parse Command').first().json;\n  const reviewData = $input.first().json;\n  \n  if (!reviewData || !reviewData.findings) {\n    return [{ json: { error: true, summary_comment: '⚠️ Review not found or no findings available.', gitlab_url: cmdData.gitlab_url, project_id: cmdData.project_id, mr_iid: cmdData.mr_iid } }];\n  }\n  \n  const findings = typeof reviewData.findings === 'string' ? JSON.parse(reviewData.findings) : reviewData.findings;\n  const findingId = cmdData.explain_finding_id;\n  const finding = findings.find(f => f.id === findingId);\n  \n  if (!finding) {\n    return [{ json: { summary_comment: `⚠️ Finding #${findingId} not found. Use \\`/list-findings\\` to see available findings.`, gitlab_url: cmdData.gitlab_url, project_id: cmdData.project_id, mr_iid: cmdData.mr_iid } }];\n  }\n  \n  const sevEmoji = { critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' };\n  const catEmoji = { 'security': '🔒', 'performance': '⚡', 'architecture': '🏗️', 'code-quality': '✨', 'test-coverage': '🧪', 'style': '🎨', 'context': '🔗' };\n  \n  let explanation = `## 🔍 Finding #${finding.id} - Detailed Explanation\\n\\n`;\n  explanation += `### ${sevEmoji[finding.severity] || '⚪'} ${finding.title}\\n\\n`;\n  explanation += `| Field | Value |\\n|-------|-------|\\n`;\n  explanation += `| **Severity** | ${finding.severity} |\\n`;\n  explanation += `| **Category** | ${catEmoji[finding.category] || '📋'} ${finding.category} |\\n`;\n  if (finding.subcategory) explanation += `| **Subcategory** | ${finding.subcategory} |\\n`;\n  explanation += `| **File** | \\`${finding.file_path}:${finding.line}\\` |\\n`;\n  if (finding.confidence) explanation += `| **Confidence** | ${finding.confidence} |\\n`;\n  explanation += `\\n`;\n  \n  explanation += `### 📝 Description\\n\\n${finding.description}\\n\\n`;\n  \n  if (finding.suggestion) {\n    explanation += `### 💡 Suggested Fix\\n\\n${finding.suggestion}\\n\\n`;\n  }\n  \n  if (finding.cwe_id) {\n    const cweNum = String(finding.cwe_id).replace('CWE-', '');\n    explanation += `### 🔗 Reference\\n\\n[CWE-${cweNum}](https://cwe.mitre.org/data/definitions/${cweNum}.html)\\n\\n`;\n  }\n  \n  if (finding.impact) {\n    explanation += `### ⚡ Impact\\n\\n${finding.impact}\\n\\n`;\n  }\n  \n  if (finding.metrics) {\n    explanation += `### 📊 Metrics\\n\\n${finding.metrics}\\n\\n`;\n  }\n  \n  if (finding.test_example) {\n    explanation += `### 🧪 Test Example\\n\\n\\`\\`\\`\\n${finding.test_example}\\n\\`\\`\\`\\n\\n`;\n  }\n  \n  if (finding.related_files && finding.related_files.length > 0) {\n    explanation += `### 🔗 Related Files\\n\\n${finding.related_files.map(f => `- \\`${f}\\``).join('\\n')}\\n\\n`;\n  }\n  \n  return [{ json: { summary_comment: explanation, gitlab_url: cmdData.gitlab_url, project_id: cmdData.project_id, mr_iid: cmdData.mr_iid } }];\n} catch (error) {\n  const cmdData = $('Parse Command').first().json;\n  return [{ json: { error: true, summary_comment: `⚠️ Error generating explanation: ${error.message}`, gitlab_url: cmdData.gitlab_url, project_id: cmdData.project_id, mr_iid: cmdData.mr_iid } }];\n}"
+      },
+      "id": "process-explain",
+      "name": "Process Explain",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 1150]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.gitlab_url }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.summary_comment } }}",
+        "options": {}
+      },
+      "id": "post-explain",
+      "name": "Post Explain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 1150],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{GITLAB_HEADER_AUTH_ID}}",
+          "name": "GitLab Private Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT * FROM pending_reviews WHERE project_id = {{ $json.project_id }} AND mr_iid = {{ $json.mr_iid }} AND status = 'pending_approval' ORDER BY created_at DESC LIMIT 1",
+        "options": {}
+      },
+      "id": "fetch-review-rerun",
+      "name": "Fetch Review (Rerun)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [950, 1350],
+      "credentials": {
+        "postgres": {
+          "id": "{{POSTGRES_CREDENTIAL_ID}}",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parse Command').first().json.gitlab_url }}/api/v4/projects/{{ $('Parse Command').first().json.project_id }}/merge_requests/{{ $('Parse Command').first().json.mr_iid }}/changes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "fetch-mr-diff-rerun",
+      "name": "Fetch MR Diff (Rerun)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 1350],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{GITLAB_HEADER_AUTH_ID}}",
+          "name": "GitLab Private Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Build agent-specific prompt for rerun\ntry {\n  const cmdData = $('Parse Command').first().json;\n  const reviewData = $('Fetch Review (Rerun)').first().json;\n  const diffData = $input.first().json;\n  const agentName = cmdData.rerun_agent_name;\n  \n  if (!reviewData || !reviewData.findings) {\n    return [{ json: { error: true, summary_comment: '⚠️ Review not found.', gitlab_url: cmdData.gitlab_url, project_id: cmdData.project_id, mr_iid: cmdData.mr_iid } }];\n  }\n  \n  // Extract changed files with diffs\n  const changedFiles = (diffData.changes || []).map(change => ({\n    old_path: change.old_path,\n    new_path: change.new_path,\n    diff: change.diff,\n    new_file: change.new_file,\n    deleted_file: change.deleted_file,\n    renamed_file: change.renamed_file\n  }));\n  \n  // Build diff text for user message\n  let diffText = '';\n  for (const file of changedFiles) {\n    let fileLabel = file.new_path;\n    if (file.renamed_file) fileLabel += ` (renamed from ${file.old_path})`;\n    if (file.new_file) fileLabel += ' (NEW FILE)';\n    if (file.deleted_file) fileLabel += ' (DELETED)';\n    diffText += `\\n### ${fileLabel}\\n\\`\\`\\`diff\\n${file.diff || 'No diff available'}\\n\\`\\`\\`\\n`;\n  }\n  \n  // Agent system prompts map (abbreviated for rerun - key instructions only)\n  const agentPrompts = {\n    'security': 'You are a Senior Security Engineer conducting a thorough code review. Focus on OWASP Top 10, auth flaws, secrets, input validation, crypto issues, API security, dependency vulnerabilities, race conditions, injection attacks. Severity: critical (immediate threat, exploitable without auth), high (requires conditions, significant impact), medium (best practice violation), low (minor concern). Return JSON array with: file_path, line, severity, category (security), subcategory, title, description, suggestion, cwe_id, confidence. Return [] if no issues.',\n    'performance': 'You are a Performance Optimization Specialist. Focus on N+1 queries, algorithmic complexity, memory leaks, caching, async/concurrency patterns, network optimization, resource cleanup. Severity: critical (O(n^2) hot path, resource exhaustion), high (N+1, blocking async), medium (suboptimal algorithm), low (micro-optimization). Return JSON array with: file_path, line, severity, category (performance), subcategory, title, description, suggestion, impact, confidence. Return [] if no issues.',\n    'style': 'You are a Code Style Review Specialist. Focus on naming conventions, formatting, documentation, magic numbers, function length, import organization, dead code. Severity: high (unreadable code, missing critical docs), medium (inconsistent naming, missing public docs), low (minor style). Return JSON array with: file_path, line, severity, category (style), subcategory, title, description, suggestion, auto_fixable, confidence. Return [] if no issues.',\n    'architecture': 'You are a Software Architecture Review Specialist. Focus on SOLID principles, design patterns, coupling/cohesion, separation of concerns, abstraction layers, dependency injection, API design. Severity: critical (fundamental violation, tight coupling), high (significant concern, missing abstraction), medium (minor issue), low (improvement suggestion). Return JSON array with: file_path, line, severity, category (architecture), subcategory, title, description, suggestion, impact, confidence. Return [] if no issues.',\n    'test-coverage': 'You are a Test Coverage and Quality Specialist. Focus on unit test coverage, edge cases, error handling, integration testing, test quality, mock usage. Severity: critical (untested critical path), high (significant coverage gap), medium (partial coverage), low (additional test suggestion). Return JSON array with: file_path, line, severity, category (test-coverage), subcategory, title, description, suggestion, test_example, confidence. Return [] if no issues.',\n    'code-quality': 'You are a Code Quality Specialist. Focus on cyclomatic complexity, code smells, duplication, maintainability, error handling, null safety, type safety. Severity: critical (complexity >15, guaranteed error), high (complexity 10-15, significant duplication), medium (moderate complexity), low (minor improvement). Return JSON array with: file_path, line, severity, category (code-quality), subcategory, title, description, suggestion, metrics, confidence. Return [] if no issues.',\n    'context': 'You are a Codebase Context Analyst. Focus on file relationships, import/export consistency, API contract changes, migration alignment, config updates, breaking changes, missing related changes, ripple effects. Severity: critical (breaking change without migration), high (missing import, inconsistent API), medium (inconsistent pattern), low (minor inconsistency). Return JSON array with: file_path, line, severity, category (context), subcategory, title, description, suggestion, related_files, confidence. Return [] if no issues.'\n  };\n  \n  const systemPrompt = agentPrompts[agentName];\n  if (!systemPrompt) {\n    return [{ json: { error: true, summary_comment: `⚠️ Unknown agent: ${agentName}`, gitlab_url: cmdData.gitlab_url, project_id: cmdData.project_id, mr_iid: cmdData.mr_iid } }];\n  }\n  \n  const userMessage = `Review the following merge request changes:\\n\\nFiles changed: ${changedFiles.length}\\n${diffText}\\n\\nReturn ONLY a valid JSON array. Return [] if no issues found. Do not include markdown formatting.`;\n  \n  return [{ json: {\n    agent_name: agentName,\n    request_body: {\n      model: $('Config').first().json.OPENROUTER_MODEL || 'anthropic/claude-3.5-sonnet',\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userMessage }\n      ],\n      max_tokens: agentName === 'style' ? 6144 : 8192,\n      temperature: 0.1\n    },\n    review_data: reviewData,\n    gitlab_url: cmdData.gitlab_url,\n    project_id: cmdData.project_id,\n    mr_iid: cmdData.mr_iid,\n    review_id: reviewData.review_id\n  } }];\n} catch (error) {\n  const cmdData = $('Parse Command').first().json;\n  return [{ json: { error: true, summary_comment: `⚠️ Error preparing rerun: ${error.message}`, gitlab_url: cmdData.gitlab_url, project_id: cmdData.project_id, mr_iid: cmdData.mr_iid } }];\n}"
+      },
+      "id": "prepare-rerun-context",
+      "name": "Prepare Rerun Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 1350]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "HTTP-Referer", "value": "={{ $('Config').first().json.APP_URL }}" },
+            { "name": "X-Title", "value": "=GitLab MR {{ $json.agent_name }} Review - Rerun" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.request_body }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "execute-rerun-agent",
+      "name": "Execute Rerun Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 1350],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{OPENROUTER_AUTH_ID}}",
+          "name": "OpenRouter API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Process rerun results - merge new findings back\ntry {\n  const prepData = $('Prepare Rerun Context').first().json;\n  const response = $input.first().json;\n  const agentName = prepData.agent_name;\n  const reviewData = prepData.review_data;\n  \n  // Parse existing findings\n  let existingFindings = typeof reviewData.findings === 'string' ? JSON.parse(reviewData.findings) : reviewData.findings;\n  \n  // Parse new agent response\n  let newFindings = [];\n  if (response.choices && response.choices[0] && response.choices[0].message) {\n    const content = response.choices[0].message.content || '';\n    let jsonMatch = content.match(/\\[\\s*\\{[\\s\\S]*\\}\\s*\\]/);\n    if (!jsonMatch) {\n      jsonMatch = content.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n      if (jsonMatch) {\n        const inner = jsonMatch[1].match(/\\[\\s*\\{[\\s\\S]*\\}\\s*\\]/);\n        if (inner) jsonMatch = inner;\n      }\n    }\n    if (jsonMatch) {\n      newFindings = JSON.parse(jsonMatch[0]);\n    }\n  }\n  \n  // Map agent name to category\n  const categoryMap = {\n    'security': 'security', 'performance': 'performance', 'style': 'style',\n    'architecture': 'architecture', 'test-coverage': 'test-coverage',\n    'code-quality': 'code-quality', 'context': 'context'\n  };\n  const targetCategory = categoryMap[agentName] || agentName;\n  \n  // Remove old findings from this category\n  const otherFindings = existingFindings.filter(f => f.category !== targetCategory);\n  \n  // Add new findings\n  const allFindings = [...otherFindings, ...newFindings];\n  \n  // Sort by severity\n  const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };\n  allFindings.sort((a, b) => (severityOrder[a.severity] || 4) - (severityOrder[b.severity] || 4));\n  \n  // Renumber\n  allFindings.forEach((f, idx) => f.id = idx + 1);\n  \n  // Build confirmation\n  const oldCount = existingFindings.filter(f => f.category === targetCategory).length;\n  const newCount = newFindings.length;\n  let confirmation = `## 🔄 Agent Rerun Complete: ${agentName}\\n\\n`;\n  confirmation += `| | Before | After |\\n|---|---|---|\\n`;\n  confirmation += `| **${agentName} findings** | ${oldCount} | ${newCount} |\\n`;\n  confirmation += `| **Total findings** | ${existingFindings.length} | ${allFindings.length} |\\n\\n`;\n  \n  if (newFindings.length > 0) {\n    confirmation += `### New findings:\\n`;\n    for (const f of newFindings) {\n      confirmation += `- **#${f.id}** [${f.severity}] ${f.title} (\\`${f.file_path}:${f.line}\\`)\\n`;\n    }\n  } else {\n    confirmation += `No issues found by ${agentName} agent.\\n`;\n  }\n  \n  confirmation += `\\nUse \\`/list-findings\\` to see the updated list.`;\n  \n  return [{ json: {\n    summary_comment: confirmation,\n    updated_findings: JSON.stringify(allFindings),\n    review_id: prepData.review_id,\n    gitlab_url: prepData.gitlab_url,\n    project_id: prepData.project_id,\n    mr_iid: prepData.mr_iid\n  } }];\n} catch (error) {\n  const prepData = $('Prepare Rerun Context').first().json;\n  return [{ json: {\n    error: true,\n    summary_comment: `⚠️ Error processing rerun results: ${error.message}`,\n    gitlab_url: prepData.gitlab_url,\n    project_id: prepData.project_id,\n    mr_iid: prepData.mr_iid\n  } }];\n}"
+      },
+      "id": "process-rerun-results",
+      "name": "Process Rerun Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1950, 1350]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.gitlab_url }}/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.mr_iid }}/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { body: $json.summary_comment } }}",
+        "options": {}
+      },
+      "id": "post-rerun-confirm",
+      "name": "Post Rerun Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2200, 1300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "{{GITLAB_HEADER_AUTH_ID}}",
+          "name": "GitLab Private Token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=UPDATE pending_reviews SET findings = '{{ JSON.stringify($json.updated_findings).replace(/'/g, \"''\") }}'::jsonb WHERE review_id = '{{ $json.review_id }}'",
+        "options": {}
+      },
+      "id": "update-findings-rerun",
+      "name": "Update Findings (Rerun)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2200, 1400],
+      "credentials": {
+        "postgres": {
+          "id": "{{POSTGRES_CREDENTIAL_ID}}",
+          "name": "PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Record all findings as accepted in review_history\ntry {\n  const reviewData = $('Fetch Review (Approve All)').first().json;\n  const findings = typeof reviewData.findings === 'string' ? JSON.parse(reviewData.findings) : reviewData.findings;\n  const cmdData = $('Parse Command').first().json;\n  \n  const records = findings.map(f => ({\n    review_id: reviewData.review_id,\n    project_id: reviewData.project_id,\n    mr_iid: reviewData.mr_iid,\n    file_path: f.file_path,\n    issue_type: f.category,\n    issue_subcategory: f.subcategory || null,\n    severity: f.severity,\n    finding_data: JSON.stringify(f),\n    was_accepted: true\n  }));\n  \n  return records.map(r => ({ json: r }));\n} catch (error) {\n  return [{ json: { error: true, message: error.message } }];\n}"
+      },
+      "id": "record-history-approve-all",
+      "name": "Record History (Approve All)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO review_history (review_id, project_id, mr_iid, file_path, issue_type, issue_subcategory, severity, finding_data, was_accepted, reviewed_at) VALUES ('{{ $json.review_id }}', {{ $json.project_id }}, {{ $json.mr_iid }}, '{{ $json.file_path }}', '{{ $json.issue_type }}', '{{ $json.issue_subcategory || '' }}', '{{ $json.severity }}', '{{ $json.finding_data.replace(/'/g, \"''\") }}'::jsonb, {{ $json.was_accepted }}, NOW())",
+        "options": {}
+      },
+      "id": "insert-history-approve-all",
+      "name": "Insert History (Approve All)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2700, 100],
+      "credentials": {
+        "postgres": {
+          "id": "{{POSTGRES_CREDENTIAL_ID}}",
+          "name": "PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Record all findings as rejected in review_history\ntry {\n  const reviewData = $('Fetch Review (Reject)').first().json;\n  const findings = typeof reviewData.findings === 'string' ? JSON.parse(reviewData.findings) : reviewData.findings;\n  \n  const records = findings.map(f => ({\n    review_id: reviewData.review_id,\n    project_id: reviewData.project_id,\n    mr_iid: reviewData.mr_iid,\n    file_path: f.file_path,\n    issue_type: f.category,\n    issue_subcategory: f.subcategory || null,\n    severity: f.severity,\n    finding_data: JSON.stringify(f),\n    was_accepted: false\n  }));\n  \n  return records.map(r => ({ json: r }));\n} catch (error) {\n  return [{ json: { error: true, message: error.message } }];\n}"
+      },
+      "id": "record-history-reject",
+      "name": "Record History (Reject)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO review_history (review_id, project_id, mr_iid, file_path, issue_type, issue_subcategory, severity, finding_data, was_accepted, reviewed_at) VALUES ('{{ $json.review_id }}', {{ $json.project_id }}, {{ $json.mr_iid }}, '{{ $json.file_path }}', '{{ $json.issue_type }}', '{{ $json.issue_subcategory || '' }}', '{{ $json.severity }}', '{{ $json.finding_data.replace(/'/g, \"''\") }}'::jsonb, {{ $json.was_accepted }}, NOW())",
+        "options": {}
+      },
+      "id": "insert-history-reject",
+      "name": "Insert History (Reject)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1950, 400],
+      "credentials": {
+        "postgres": {
+          "id": "{{POSTGRES_CREDENTIAL_ID}}",
+          "name": "PostgreSQL"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "GitLab Note Trigger": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [[{ "node": "Parse Command", "type": "main", "index": 0 }]]
+    },
+    "Parse Command": {
+      "main": [[{ "node": "Route Command", "type": "main", "index": 0 }]]
+    },
+    "Route Command": {
+      "main": [
+        [{ "node": "Fetch Review (Approve All)", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Review (Partial)", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Review (Reject)", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Review (Remove)", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Review (Edit)", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Review (Add Comment)", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Review (List)", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Review (Explain)", "type": "main", "index": 0 }],
+        [{ "node": "Fetch Review (Rerun)", "type": "main", "index": 0 }],
+        [{ "node": "Post Error", "type": "main", "index": 0 }],
+        [{ "node": "Post Unauthorized", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Review (Approve All)": {
+      "main": [[{ "node": "Prepare All Comments", "type": "main", "index": 0 }]]
+    },
+    "Fetch Review (Partial)": {
+      "main": [[{ "node": "Prepare Partial Comments", "type": "main", "index": 0 }]]
+    },
+    "Fetch Review (Reject)": {
+      "main": [[{ "node": "Post Rejection", "type": "main", "index": 0 }]]
+    },
+    "Fetch Review (Remove)": {
+      "main": [[{ "node": "Process Remove Finding", "type": "main", "index": 0 }]]
+    },
+    "Fetch Review (Edit)": {
+      "main": [[{ "node": "Process Edit Finding", "type": "main", "index": 0 }]]
+    },
+    "Fetch Review (Add Comment)": {
+      "main": [[{ "node": "Process Add Comment", "type": "main", "index": 0 }]]
+    },
+    "Fetch Review (List)": {
+      "main": [[{ "node": "Process List Findings", "type": "main", "index": 0 }]]
+    },
+    "Prepare All Comments": {
+      "main": [[{ "node": "Batch All Comments", "type": "main", "index": 0 }]]
+    },
+    "Prepare Partial Comments": {
+      "main": [[{ "node": "Batch Partial Comments", "type": "main", "index": 0 }]]
+    },
+    "Batch All Comments": {
+      "main": [
+        [{ "node": "Post Comment (All)", "type": "main", "index": 0 }],
+        [{ "node": "Confirm Approve All", "type": "main", "index": 0 }]
+      ]
+    },
+    "Batch Partial Comments": {
+      "main": [
+        [{ "node": "Post Comment (Partial)", "type": "main", "index": 0 }],
+        [{ "node": "Confirm Partial Approve", "type": "main", "index": 0 }]
+      ]
+    },
+    "Post Comment (All)": {
+      "main": [[{ "node": "Batch All Comments", "type": "main", "index": 0 }]]
+    },
+    "Post Comment (Partial)": {
+      "main": [[{ "node": "Batch Partial Comments", "type": "main", "index": 0 }]]
+    },
+    "Confirm Approve All": {
+      "main": [[{ "node": "Update Status: Approved All", "type": "main", "index": 0 }]]
+    },
+    "Confirm Partial Approve": {
+      "main": [[{ "node": "Update Status: Approved Partial", "type": "main", "index": 0 }]]
+    },
+    "Post Rejection": {
+      "main": [[{ "node": "Update Status: Rejected", "type": "main", "index": 0 }]]
+    },
+    "Process Remove Finding": {
+      "main": [[{ "node": "Post Remove Confirmation", "type": "main", "index": 0 }]]
+    },
+    "Process Edit Finding": {
+      "main": [[{ "node": "Post Edit Confirmation", "type": "main", "index": 0 }]]
+    },
+    "Process Add Comment": {
+      "main": [[{ "node": "Post Add Confirmation", "type": "main", "index": 0 }]]
+    },
+    "Process List Findings": {
+      "main": [[{ "node": "Post Findings List", "type": "main", "index": 0 }]]
+    },
+    "Post Remove Confirmation": {
+      "main": [[{ "node": "Update Findings (Remove)", "type": "main", "index": 0 }]]
+    },
+    "Post Edit Confirmation": {
+      "main": [[{ "node": "Update Findings (Edit)", "type": "main", "index": 0 }]]
+    },
+    "Post Add Confirmation": {
+      "main": [[{ "node": "Update Custom Comments", "type": "main", "index": 0 }]]
+    },
+    "Fetch Review (Explain)": {
+      "main": [[{ "node": "Process Explain", "type": "main", "index": 0 }]]
+    },
+    "Process Explain": {
+      "main": [[{ "node": "Post Explain", "type": "main", "index": 0 }]]
+    },
+    "Fetch Review (Rerun)": {
+      "main": [[{ "node": "Fetch MR Diff (Rerun)", "type": "main", "index": 0 }]]
+    },
+    "Fetch MR Diff (Rerun)": {
+      "main": [[{ "node": "Prepare Rerun Context", "type": "main", "index": 0 }]]
+    },
+    "Prepare Rerun Context": {
+      "main": [[{ "node": "Execute Rerun Agent", "type": "main", "index": 0 }]]
+    },
+    "Execute Rerun Agent": {
+      "main": [[{ "node": "Process Rerun Results", "type": "main", "index": 0 }]]
+    },
+    "Process Rerun Results": {
+      "main": [[
+        { "node": "Post Rerun Confirmation", "type": "main", "index": 0 },
+        { "node": "Update Findings (Rerun)", "type": "main", "index": 0 }
+      ]]
+    },
+    "Update Status: Approved All": {
+      "main": [[{ "node": "Record History (Approve All)", "type": "main", "index": 0 }]]
+    },
+    "Record History (Approve All)": {
+      "main": [[{ "node": "Insert History (Approve All)", "type": "main", "index": 0 }]]
+    },
+    "Update Status: Rejected": {
+      "main": [[{ "node": "Record History (Reject)", "type": "main", "index": 0 }]]
+    },
+    "Record History (Reject)": {
+      "main": [[{ "node": "Insert History (Reject)", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [
+    { "name": "gitlab", "id": "1" },
+    { "name": "approval", "id": "4" },
+    { "name": "code-review", "id": "2" }
+  ],
+  "triggerCount": 1,
+  "versionId": "3.0.0"
+}
